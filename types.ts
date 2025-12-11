@@ -27,6 +27,9 @@ export enum NodeType {
   LIMIT = 'limit',
   SPLIT_BATCHES = 'splitInBatches',
   
+  // Infrastructure
+  SSH = 'ssh',
+
   // AI Root Chains
   AI_AGENT = 'aiAgent',
   LLM_CHAIN = 'llmChain',
@@ -49,9 +52,10 @@ export enum NodeType {
 export interface IParameterSchema {
   name: string;
   label: string;
-  type: 'string' | 'number' | 'boolean' | 'options' | 'dateTime' | 'json';
+  type: 'string' | 'number' | 'boolean' | 'options' | 'dateTime' | 'json' | 'credential';
   default?: any;
   options?: { label: string; value: any }[];
+  credentialType?: string; // e.g., 'apiKey', 'ssh', 'oauth2'
   description?: string;
   required?: boolean;
 }
@@ -91,7 +95,8 @@ export interface IExecution {
 export interface ICredential {
   id: string;
   name: string;
-  type: string;
+  type: 'apiKey' | 'ssh' | 'oauth2' | 'database';
+  data: Record<string, string>; // The actual secret (e.g., { key: '...', user: '...' })
   updatedAt: string;
   status: 'valid' | 'invalid' | 'untested';
 }

@@ -4,7 +4,8 @@ import {
   Search, Globe, Filter, Box, X, Sparkles, Brain, Bot, 
   Terminal, Database, List, Code as CodeIcon, GitBranch, 
   Zap, Layers, MessageSquare, FileSearch, FileText, 
-  Cpu, Archive, HardDrive, Wrench, Binary
+  Cpu, Archive, HardDrive, Wrench, Binary, Server, 
+  Webhook as WebhookIcon, Clock, Pause, Merge, Split, ArrowRightLeft, FileJson
 } from 'lucide-react';
 import { useWorkflowStore } from '../store.ts';
 import { NodeType } from '../types.ts';
@@ -12,37 +13,64 @@ import ExpressionEditor from './ExpressionEditor.tsx';
 import ParameterField from './ParameterField.tsx';
 
 const NODE_TEMPLATES = [
-  { category: 'LangChain Root', nodes: [
-    { type: NodeType.AI_AGENT, label: 'AI Agent', icon: Bot, description: 'Capable agent with tool usage', schema: [
-      { name: 'prompt', label: 'Instruction', type: 'string', description: 'System persona' },
-      { name: 'model', label: 'Model', type: 'options', default: 'gpt-4o', options: [{label: 'GPT-4o', value: 'gpt-4o'}, {label: 'Gemini Pro', value: 'gemini-2.5-pro'}] }
+  { category: 'Triggers', nodes: [
+    { type: NodeType.WEBHOOK, label: 'Webhook', icon: WebhookIcon, description: 'Start flow via HTTP POST/GET', schema: [
+      { name: 'path', label: 'URL Path', type: 'string', default: 'webhook-id' },
+      { name: 'method', label: 'HTTP Method', type: 'options', default: 'POST', options: [{label: 'POST', value: 'POST'}, {label: 'GET', value: 'GET'}] }
     ]},
-    { type: NodeType.LLM_CHAIN, label: 'Basic LLM Chain', icon: Layers, description: 'Simple Prompt-Response chain', schema: [{ name: 'prompt', label: 'Template', type: 'string' }] },
-    { type: NodeType.QA_CHAIN, label: 'QA Chain (RAG)', icon: FileSearch, description: 'Chat with documents', schema: [{ name: 'query', label: 'Question', type: 'string' }] },
-    { type: NodeType.SUMMARIZATION_CHAIN, label: 'Summarizer', icon: FileText, description: 'Summarize long documents', schema: [{ name: 'mode', label: 'Strategy', type: 'options', default: 'stuff', options: [{label: 'Stuff', value: 'stuff'}, {label: 'Map-Reduce', value: 'map_reduce'}] }] }
+    { type: NodeType.CRON, label: 'Cron Schedule', icon: Clock, description: 'Trigger on time intervals', schema: [
+      { name: 'interval', label: 'Cron Expression', type: 'string', default: '0 * * * *', description: 'Standard cron format (* * * * *)' }
+    ]},
   ]},
-  { category: 'Standalone Models', nodes: [
-    { type: NodeType.OPENAI, label: 'OpenAI', icon: Brain, description: 'DALL-E, Whisper, GPT', schema: [
-      { name: 'operation', label: 'Operation', type: 'options', default: 'chat', options: [{label: 'Chat', value: 'chat'}, {label: 'Image Gen', value: 'image'}, {label: 'Transcription', value: 'audio'}, {label: 'TTS', value: 'tts'}] },
-      { name: 'prompt', label: 'Input', type: 'string' }
+  { category: 'AI Orchestration', nodes: [
+    { type: NodeType.AI_AGENT, label: 'AI Agent', icon: Bot, description: 'Autonomous agent with tool usage', schema: [
+      { name: 'credentialId', label: 'Vault Secret', type: 'credential', credentialType: 'apiKey' },
+      { name: 'prompt', label: 'System Instruction', type: 'string', description: 'Define the agents persona' },
+      { name: 'model', label: 'Model', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
     ]},
     { type: NodeType.GEMINI, label: 'Google Gemini', icon: Sparkles, description: 'Multimodal Generative AI', schema: [
-      { name: 'operation', label: 'Task', type: 'options', default: 'message', options: [{label: 'Message', value: 'message'}, {label: 'Analyze Multi-modal', value: 'vision'}] },
-      { name: 'prompt', label: 'Prompt', type: 'string' }
+      { name: 'credentialId', label: 'API Key Source', type: 'credential', credentialType: 'apiKey' },
+      { name: 'operation', label: 'Operation', type: 'options', default: 'message', options: [{label: 'Chat/Message', value: 'message'}, {label: 'Vision/Image', value: 'vision'}] },
+      { name: 'prompt', label: 'Input Prompt', type: 'string' },
+      { name: 'model', label: 'Model Name', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
     ]},
-    { type: NodeType.HF_INFERENCE, label: 'Hugging Face', icon: Terminal, description: 'Open Source Inference', schema: [
-      { name: 'task', label: 'Task', type: 'options', default: 'text-classification', options: [{label: 'Text Classify', value: 'text-classification'}, {label: 'Object Detection', value: 'object-detection'}, {label: 'ASR', value: 'asr'}] }
-    ]}
+    { type: NodeType.LLM_CHAIN, label: 'LLM Chain', icon: Layers, description: 'Prompt-Response template', schema: [{ name: 'prompt', label: 'Prompt Template', type: 'string' }] },
+    { type: NodeType.SUMMARIZATION_CHAIN, label: 'Summarizer', icon: FileText, description: 'Compress long data into summaries', schema: [{ name: 'type', label: 'Strategy', type: 'options', default: 'map_reduce', options: [{label: 'Stuff', value: 'stuff'}, {label: 'Map Reduce', value: 'map_reduce'}] }] },
   ]},
-  { category: 'LangChain Components', nodes: [
-    { type: NodeType.MEMORY, label: 'Memory', icon: Archive, description: 'Conversation Buffer', schema: [{ name: 'limit', label: 'Message Limit', type: 'number', default: 5 }] },
-    { type: NodeType.VECTOR_STORE, icon: HardDrive, label: 'Vector Store', description: 'Pinecone / Supabase', schema: [{ name: 'index', label: 'Index Name', type: 'string' }] },
-    { type: NodeType.TOOL, label: 'Tool', icon: Wrench, description: 'Search, Calc, Custom', schema: [{ name: 'tool', label: 'Tool Type', type: 'options', default: 'wikipedia', options: [{label: 'Wikipedia', value: 'wikipedia'}, {label: 'Google Search', value: 'serp'}] }] }
+  { category: 'Infrastructure', nodes: [
+    { type: NodeType.SSH, label: 'SSH Execution', icon: Terminal, description: 'Remote server shell commands', schema: [
+      { name: 'credentialId', label: 'SSH Auth', type: 'credential', credentialType: 'ssh' },
+      { name: 'host', label: 'Hostname', type: 'string', placeholder: 'server.domain.com' },
+      { name: 'command', label: 'Bash Command', type: 'string', default: 'uptime' }
+    ]},
+    { type: NodeType.HTTP_REQUEST, label: 'HTTP Request', icon: Globe, description: 'API calls & External systems', schema: [
+      { name: 'credentialId', label: 'Authentication', type: 'credential', credentialType: 'apiKey' },
+      { name: 'url', label: 'Endpoint URL', type: 'string' },
+      { name: 'method', label: 'Method', type: 'options', default: 'GET', options: [{label: 'GET', value: 'GET'}, {label: 'POST', value: 'POST'}, {label: 'PUT', value: 'PUT'}, {label: 'DELETE', value: 'DELETE'}] },
+      { name: 'body', label: 'JSON Body', type: 'json' }
+    ]},
   ]},
   { category: 'Data & Flow', nodes: [
-    { type: NodeType.HTTP_REQUEST, label: 'HTTP Request', icon: Globe, description: 'API Integrations', schema: [{ name: 'url', label: 'URL', type: 'string' }, { name: 'method', label: 'Method', type: 'options', default: 'GET' }] },
-    { type: NodeType.FILTER, label: 'Filter', icon: Filter, description: 'Logic Branching', schema: [{ name: 'property', label: 'Property', type: 'string' }, { name: 'value', label: 'Target', type: 'string' }] },
-    { type: NodeType.CODE, label: 'JS Code', icon: CodeIcon, description: 'Secure Sandbox', schema: [{ name: 'jsCode', label: 'Code', type: 'string', default: 'result = $json;' }] }
+    { type: NodeType.FILTER, label: 'Filter', icon: Filter, description: 'Conditional branching', schema: [{ name: 'property', label: 'Variable', type: 'string' }, { name: 'value', label: 'Comparison', type: 'string' }] },
+    { type: NodeType.CODE, label: 'JS Code', icon: CodeIcon, description: 'Isolated JS Sandbox', schema: [{ name: 'jsCode', label: 'Function', type: 'string', default: 'return $json;' }] },
+    { type: NodeType.JSON_PARSER, label: 'JSON Parser', icon: FileJson, description: 'Parse string to JSON object', schema: [
+      { name: 'jsonString', label: 'JSON String', type: 'string', default: '{{ $json.body }}' },
+      { name: 'jsonSchema', label: 'JSON Schema (Optional)', type: 'json', default: '{}', description: 'Validate the parsed object against this schema' }
+    ]},
+    { type: NodeType.SET, label: 'Set Data', icon: Database, description: 'Update flow variables', schema: [
+      { name: 'json', label: 'Data Object', type: 'json', default: '{}' },
+      { name: 'jsonSchema', label: 'JSON Schema (Optional)', type: 'json', default: '{}', description: 'Enforce structure on the output data' }
+    ]},
+    { type: NodeType.WAIT, label: 'Wait/Delay', icon: Pause, description: 'Pause execution', schema: [{ name: 'seconds', label: 'Seconds', type: 'number', default: 5 }] },
+    { type: NodeType.SWITCH, label: 'Switch', icon: Zap, description: 'Multi-path routing', schema: [{ name: 'property', label: 'Switch Key', type: 'string' }] },
+  ]},
+  { category: 'RAG & Memory', nodes: [
+    { type: NodeType.VECTOR_STORE, label: 'Vector Store', icon: HardDrive, description: 'Connect to Vector DBs', schema: [
+      { name: 'credentialId', label: 'DB Secret', type: 'credential', credentialType: 'database' },
+      { name: 'index', label: 'Index Name', type: 'string' }, 
+      { name: 'action', label: 'Action', type: 'options', default: 'search', options: [{label: 'Search', value: 'search'}, {label: 'Upsert', value: 'upsert'}] }
+    ]},
+    { type: NodeType.QA_CHAIN, label: 'QA Chain (RAG)', icon: FileSearch, description: 'Document retrieval chain', schema: [{ name: 'query', label: 'User Query', type: 'string' }] },
   ]}
 ];
 
@@ -66,7 +94,7 @@ const Sidebar: React.FC = () => {
     if (!search) return NODE_TEMPLATES;
     return NODE_TEMPLATES.map(cat => ({
       ...cat,
-      nodes: cat.nodes.filter(n => n.label.toLowerCase().includes(search.toLowerCase()))
+      nodes: cat.nodes.filter(n => n.label.toLowerCase().includes(search.toLowerCase()) || n.description.toLowerCase().includes(search.toLowerCase()))
     })).filter(cat => cat.nodes.length > 0);
   }, [search]);
 
@@ -77,13 +105,21 @@ const Sidebar: React.FC = () => {
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Node Library</h2>
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search components..." className="w-full bg-black/40 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500/30 transition-all" />
+            <input 
+              value={search} 
+              onChange={(e) => setSearch(e.target.value)} 
+              placeholder="Search components..." 
+              className="w-full bg-black/40 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500/30 transition-all" 
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-6 pb-8 space-y-8 scrollbar-hide">
           {filteredTemplates.map(cat => (
             <div key={cat.category} className="space-y-4">
-              <h3 className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2">{cat.category}</h3>
+              <h3 className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2 flex items-center gap-2">
+                 <div className="w-1 h-1 rounded-full bg-sky-500/40" />
+                 {cat.category}
+              </h3>
               <div className="grid grid-cols-1 gap-3">
                 {cat.nodes.map(node => (
                   <div key={node.label} draggable onDragStart={(e) => onDragStart(e, node.type as NodeType)} className="p-4 rounded-2xl glass-button cursor-grab flex items-center gap-4 group hover:scale-[1.02] active:scale-95 transition-all">
@@ -127,7 +163,7 @@ const Sidebar: React.FC = () => {
               <div className="space-y-10">
                 <ParameterField label="Identity" value={selectedNode.data.label} type="string" onChange={(v) => updateNodeData(selectedNode.id, { label: v })} onOpenExpression={() => { setActiveParam('label'); setIsExpressionOpen(true); }} />
                 {nodeTemplate?.schema?.map(p => (
-                   <ParameterField key={p.name} label={p.label} value={selectedNode.data.params?.[p.name] || p.default} type={p.type} options={p.options} description={p.description} onChange={(v) => updateNodeData(selectedNode.id, { params: { ...selectedNode.data.params, [p.name]: v } })} onOpenExpression={() => { setActiveParam(p.name); setIsExpressionOpen(true); }} />
+                   <ParameterField key={p.name} label={p.label} value={selectedNode.data.params?.[p.name] || p.default} type={p.type} options={p.options} credentialType={p.credentialType} description={p.description} onChange={(v) => updateNodeData(selectedNode.id, { params: { ...selectedNode.data.params, [p.name]: v } })} onOpenExpression={() => { setActiveParam(p.name); setIsExpressionOpen(true); }} />
                 ))}
               </div>
             ) : (

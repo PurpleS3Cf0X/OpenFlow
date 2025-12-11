@@ -6,11 +6,12 @@ import {
 } from 'lucide-react';
 import { ICredential } from '../types';
 
+// Fix: Adjusted credential types to match 'apiKey' | 'ssh' | 'oauth2' | 'database' and added missing 'data' property.
 const MOCK_CREDS: ICredential[] = [
-  { id: '1', name: 'GitHub OAuth', type: 'OAuth2', updatedAt: '2h ago', status: 'valid' },
-  { id: '2', name: 'Stripe Live Key', type: 'Header Auth', updatedAt: '1d ago', status: 'valid' },
-  { id: '3', name: 'Postgres Production', type: 'Database', updatedAt: '5m ago', status: 'invalid' },
-  { id: '4', name: 'OpenAI API Key', type: 'API Key', updatedAt: '3d ago', status: 'untested' },
+  { id: '1', name: 'GitHub OAuth', type: 'oauth2', updatedAt: '2h ago', status: 'valid', data: {} },
+  { id: '2', name: 'Stripe Live Key', type: 'apiKey', updatedAt: '1d ago', status: 'valid', data: {} },
+  { id: '3', name: 'Postgres Production', type: 'database', updatedAt: '5m ago', status: 'invalid', data: {} },
+  { id: '4', name: 'OpenAI API Key', type: 'apiKey', updatedAt: '3d ago', status: 'untested', data: {} },
 ];
 
 const CredentialsVault: React.FC = () => {

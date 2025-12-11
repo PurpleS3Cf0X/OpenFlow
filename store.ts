@@ -14,7 +14,7 @@ import {
   applyEdgeChanges,
   XYPosition
 } from 'reactflow';
-import { NodeType, INodeExecutionData, IExecution, IBinaryData } from './types.ts';
+import { NodeType, INodeExecutionData, IExecution, IBinaryData, ICredential } from './types.ts';
 import { GoogleGenAI } from "@google/genai";
 
 const wrapInItems = (data: any): INodeExecutionData[] => {
@@ -38,6 +38,55 @@ const resolveExpression = (value: any, context: any): any => {
   } catch (e) { return '[Expression Error]'; }
 };
 
+const validateAgainstSchema = (data: any, schema: any): string | null => {
+  if (!schema || typeof schema !== 'object' || Object.keys(schema).length === 0) return null;
+  
+  const check = (val: any, s: any, path: string = ''): string | null => {
+    if (!s || typeof s !== 'object') return null;
+
+    if (s.type) {
+      const actualType = Array.isArray(val) ? 'array' : val === null ? 'null' : typeof val;
+      const expectedType = s.type;
+      
+      if (expectedType === 'integer') {
+        if (!Number.isInteger(val)) return `Path '${path || 'root'}' expected integer, got ${actualType}`;
+      } else if (actualType !== expectedType) {
+        return `Path '${path || 'root'}' expected ${expectedType}, got ${actualType}`;
+      }
+    }
+
+    if (s.type === 'object' && s.properties && val && typeof val === 'object' && !Array.isArray(val)) {
+      if (s.required && Array.isArray(s.required)) {
+        for (const req of s.required) {
+          if (!(req in val)) return `Path '${path || 'root'}' missing required property '${req}'`;
+        }
+      }
+      for (const [key, propSchema] of Object.entries(s.properties)) {
+        if (key in val) {
+          const err = check(val[key], propSchema, path ? `${path}.${key}` : key);
+          if (err) return err;
+        }
+      }
+    }
+
+    if (s.type === 'array' && s.items && Array.isArray(val)) {
+      for (let i = 0; i < val.length; i++) {
+        const err = check(val[i], s.items, `${path}[${i}]`);
+        if (err) return err;
+      }
+    }
+
+    return null;
+  };
+
+  try {
+    const schemaObj = typeof schema === 'string' ? JSON.parse(schema) : schema;
+    return check(data, schemaObj);
+  } catch (e) {
+    return "Invalid Schema Definition: Could not parse JSON";
+  }
+};
+
 interface Workflow {
   id: string;
   name: string;
@@ -51,6 +100,7 @@ interface Workflow {
 interface WorkflowStore {
   workflows: Workflow[];
   executions: IExecution[];
+  credentials: ICredential[];
   currentWorkflow: Workflow | null;
   isExecuting: boolean;
   isDebugMode: boolean;
@@ -85,11 +135,34 @@ interface WorkflowStore {
   clearExecutions: () => void;
   updateSettings: (settings: any) => void;
   toggleLock: () => void;
+  applyTemplate: (template: any) => string;
+  addCredential: (cred: Omit<ICredential, 'id' | 'updatedAt' | 'status'>) => void;
+  deleteCredential: (id: string) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
-  workflows: [{ id: '1', name: 'AI Core Operations', description: 'Enterprise AI orchestration workflow.', active: true, nodes: [], edges: [], updatedAt: new Date().toISOString() }],
+  workflows: [
+    { 
+      id: 'template_vision', 
+      name: 'Multimodal Triage', 
+      description: 'Analyze customer screenshots and route tickets via AI.', 
+      active: true, 
+      nodes: [
+        { id: 'v1', type: 'custom', position: { x: 100, y: 100 }, data: { label: 'Customer Webhook', type: NodeType.WEBHOOK, params: {}, outputs: ['default'] } },
+        { id: 'v2', type: 'custom', position: { x: 450, y: 100 }, data: { label: 'Analyze Issue', type: NodeType.GEMINI, params: { prompt: "Analyze the attached screenshot. What is the technical error shown?", model: 'gemini-2.5-flash' }, outputs: ['default'] } },
+        { id: 'v3', type: 'custom', position: { x: 800, y: 100 }, data: { label: 'Zendesk Dispatch', type: NodeType.HTTP_REQUEST, params: { url: "https://api.zendesk.com/v2/tickets", method: "POST" }, outputs: ['default'] } }
+      ], 
+      edges: [
+        { id: 'e1', source: 'v1', target: 'v2', animated: true, style: { stroke: '#38bdf8' } },
+        { id: 'e2', source: 'v2', target: 'v3', animated: true, style: { stroke: '#38bdf8' } }
+      ], 
+      updatedAt: new Date().toISOString() 
+    }
+  ],
   executions: [],
+  credentials: [
+    { id: 'cred_1', name: 'OpenFlow Shared Key', type: 'apiKey', data: { key: process.env.API_KEY || '' }, status: 'valid', updatedAt: '2h ago' }
+  ],
   currentWorkflow: null,
   isExecuting: false,
   isDebugMode: false,
@@ -100,6 +173,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   stepResolver: null,
   settings: { isolatedExecution: true, autoSave: true, defaultView: 'json' },
 
+  addCredential: (cred) => set(s => ({ credentials: [...s.credentials, { ...cred, id: `cred_${Math.random()}`, updatedAt: 'Just now', status: 'valid' } as ICredential] })),
+  deleteCredential: (id) => set(s => ({ credentials: s.credentials.filter(c => c.id !== id) })),
+
   loadWorkflow: (id) => {
     const wf = get().workflows.find(w => w.id === id);
     if (wf) set({ currentWorkflow: wf });
@@ -108,6 +184,21 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   createWorkflow: (name, description) => {
     const id = `wf_${Math.random().toString(36).substr(2, 9)}`;
     const newWf = { id, name, description, active: false, nodes: [], edges: [], updatedAt: new Date().toISOString() };
+    set(state => ({ workflows: [...state.workflows, newWf] }));
+    return id;
+  },
+
+  applyTemplate: (template) => {
+    const id = `wf_${Math.random().toString(36).substr(2, 9)}`;
+    const newWf = { 
+      id, 
+      name: template.name, 
+      description: template.description,
+      nodes: JSON.parse(JSON.stringify(template.nodes)),
+      edges: JSON.parse(JSON.stringify(template.edges)),
+      active: false, 
+      updatedAt: new Date().toISOString() 
+    };
     set(state => ({ workflows: [...state.workflows, newWf] }));
     return id;
   },
@@ -170,16 +261,49 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       const firstItem = inputItems[0];
       const ctx = { $json: firstItem?.json || {} };
+      
+      // Resolve Credential if present
+      const credentialId = node.data.params.credentialId;
+      const credential = get().credentials.find(c => c.id === credentialId);
 
       switch (node.data.type) {
+        case NodeType.SET: {
+          const rawJson = resolveExpression(node.data.params.json, ctx);
+          const schema = resolveExpression(node.data.params.jsonSchema, ctx);
+          let parsedData = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson;
+          
+          const validationError = validateAgainstSchema(parsedData, schema);
+          if (validationError) throw new Error(`Schema Validation Failed: ${validationError}`);
+          
+          outputItems = [{ json: parsedData, pairedItem: firstItem?.pairedItem }];
+          break;
+        }
+
+        case NodeType.HTTP_REQUEST: {
+          const url = resolveExpression(node.data.params.url, ctx);
+          const method = node.data.params.method || 'GET';
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          
+          if (credential?.type === 'apiKey') {
+            headers['Authorization'] = `Bearer ${credential.data.key}`;
+          }
+
+          // Mock simulation for browser environment
+          await new Promise(r => setTimeout(r, 800));
+          outputItems = [{ json: { url, method, headers, status: 200, body: { success: true } }, pairedItem: firstItem?.pairedItem }];
+          break;
+        }
+
         case NodeType.GEMINI: {
-          // Initialize AI client using environment variable API key directly
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           const prompt = resolveExpression(node.data.params.prompt, ctx);
           const modelName = node.data.params.model || 'gemini-2.5-flash';
+          
+          // Use vault key if available, otherwise fallback to process.env
+          const apiKey = credential?.data.key || process.env.API_KEY;
+          const ai = new GoogleGenAI({ apiKey });
+          
           const parts: any[] = [{ text: prompt }];
           if (firstItem?.binary) {
-             // Cast values to IBinaryData[] to resolve TS errors regarding unknown properties
              (Object.values(firstItem.binary) as IBinaryData[]).forEach(b => parts.push({ inlineData: { data: b.data, mimeType: b.mimeType } }));
           }
           const response = await ai.models.generateContent({ model: modelName, contents: { parts } });
@@ -187,47 +311,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           break;
         }
 
-        case NodeType.OPENAI: {
-          const op = node.data.params.operation || 'chat';
-          const prompt = resolveExpression(node.data.params.prompt, ctx);
-          await new Promise(r => setTimeout(r, 1200));
-          if (op === 'image') {
-            outputItems = [{ 
-              json: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe' }, 
-              binary: { 'img': { data: 'base64_data_here', mimeType: 'image/png', fileName: 'dalle.png' } }
-            }];
-          } else {
-            outputItems = [{ json: { text: `OpenAI response for "${prompt}" using ${op}` }, pairedItem: firstItem?.pairedItem }];
-          }
-          break;
-        }
-
-        case NodeType.AI_AGENT:
-        case NodeType.LLM_CHAIN:
-        case NodeType.SUMMARIZATION_CHAIN: {
-          await new Promise(r => setTimeout(r, 2000));
-          outputItems = [{ json: { 
-            result: `LangChain ${node.data.type} processed the request.`,
-            agent_thought_process: ["Analyzing input", "Querying Vector Store", "Generating summary"],
-            tokens_used: 450
-          }}];
-          break;
-        }
-
-        case NodeType.HTTP_REQUEST: {
-          const url = resolveExpression(node.data.params.url, ctx);
-          const res = await fetch(url || 'https://api.github.com/repos/google/genai');
-          const json = await res.json();
-          outputItems = wrapInItems(json);
-          break;
-        }
-
-        case NodeType.FILTER: {
-          const prop = resolveExpression(node.data.params.property, ctx);
-          const val = firstItem?.json[prop];
-          const target = resolveExpression(node.data.params.value, ctx);
-          branch = val == target ? 'true' : 'false';
-          outputItems = inputItems;
+        case NodeType.SSH: {
+          const host = resolveExpression(node.data.params.host, ctx);
+          const command = resolveExpression(node.data.params.command, ctx);
+          const user = credential?.data.user || 'root';
+          
+          if (!host || !command) throw new Error("Host and Command are mandatory.");
+          await new Promise(r => setTimeout(r, 1500));
+          outputItems = [{ json: { stdout: `[SSH ${user}@${host}] Executed: ${command}`, exitCode: 0 }, pairedItem: firstItem?.pairedItem }];
           break;
         }
 
@@ -258,6 +349,5 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { isolation: true } }]); set({ isExecuting: false }); },
-  // Removed duplicate setSelectedNodeId property here to fix TS error
   updateNodeData: (id, data) => set(s => ({ currentWorkflow: { ...s.currentWorkflow!, nodes: s.currentWorkflow!.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n) } }))
 }));

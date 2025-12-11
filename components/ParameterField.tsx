@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { FunctionSquare, Info, Zap, ChevronDown, Layers } from 'lucide-react';
+import { FunctionSquare, Info, Zap, ChevronDown, Layers, ShieldCheck, Key } from 'lucide-react';
+import { useWorkflowStore } from '../store.ts';
 
 interface ParameterFieldProps {
   label: string;
@@ -11,13 +12,17 @@ interface ParameterFieldProps {
   onFocus?: () => void;
   description?: string;
   options?: { label: string; value: any }[];
+  credentialType?: string;
 }
 
 const ParameterField: React.FC<ParameterFieldProps> = ({ 
-  label, value, type, onChange, onOpenExpression, onFocus, description, options 
+  label, value, type, onChange, onOpenExpression, onFocus, description, options, credentialType 
 }) => {
   const isExpression = typeof value === 'string' && value.startsWith('{{');
   const isLarge = label.toLowerCase().includes('body') || label.toLowerCase().includes('code') || label.toLowerCase().includes('schema') || label.toLowerCase().includes('json');
+  
+  const credentials = useWorkflowStore(s => s.credentials);
+  const filteredCredentials = credentials.filter(c => !credentialType || c.type === credentialType);
 
   return (
     <div className="space-y-2 group/field">
@@ -40,15 +45,17 @@ const ParameterField: React.FC<ParameterFieldProps> = ({
               Dynamic
             </div>
           )}
-          <button 
-            type="button"
-            onClick={onOpenExpression}
-            className={`p-1.5 rounded-lg transition-all border flex items-center gap-2 px-2.5 ${isExpression ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' : 'border-white/5 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/20'}`}
-            title="Open Full Expression Hub"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span className="text-[8px] font-black uppercase tracking-widest">Hub</span>
-          </button>
+          {type !== 'credential' && (
+            <button 
+              type="button"
+              onClick={onOpenExpression}
+              className={`p-1.5 rounded-lg transition-all border flex items-center gap-2 px-2.5 ${isExpression ? 'bg-sky-500 border-sky-400 text-white shadow-lg shadow-sky-500/20' : 'border-white/5 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/20'}`}
+              title="Open Full Expression Hub"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span className="text-[8px] font-black uppercase tracking-widest">Hub</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -74,6 +81,26 @@ const ParameterField: React.FC<ParameterFieldProps> = ({
             </select>
             <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
               <ChevronDown className="w-4 h-4 text-slate-500" />
+            </div>
+          </div>
+        ) : type === 'credential' ? (
+          <div className="relative">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400">
+               <ShieldCheck className="w-4 h-4" />
+            </div>
+            <select 
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onFocus={onFocus}
+              className="w-full bg-sky-500/5 border border-sky-500/20 rounded-2xl pl-12 pr-10 py-3.5 text-xs text-sky-200 focus:outline-none focus:ring-1 focus:ring-sky-500/50 appearance-none font-black transition-all cursor-pointer shadow-inner"
+            >
+              <option value="">- Select From Vault -</option>
+              {filteredCredentials.map(c => (
+                <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+              ))}
+            </select>
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+              <ChevronDown className="w-4 h-4 text-sky-400" />
             </div>
           </div>
         ) : isLarge ? (

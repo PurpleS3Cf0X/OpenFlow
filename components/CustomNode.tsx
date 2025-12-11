@@ -29,7 +29,8 @@ const IconMap: any = {
   [NodeType.SUMMARIZATION_CHAIN]: FileText,
   [NodeType.MEMORY]: Archive,
   [NodeType.VECTOR_STORE]: HardDrive,
-  [NodeType.TOOL]: Wrench
+  [NodeType.TOOL]: Wrench,
+  [NodeType.SSH]: Terminal
 };
 
 const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
