@@ -15,7 +15,8 @@
     "zustand": "4.5.2",
     "lucide-react": "0.363.0",
     "reactflow": "11.11.4",
-    "typeorm": "^0.3.28"
+    "typeorm": "^0.3.28",
+    "@google/genai": "^1.33.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -14,12 +14,9 @@ import {
   applyEdgeChanges,
   XYPosition
 } from 'reactflow';
-import { NodeType, INodeExecutionData, IExecution } from './types.ts';
+import { NodeType, INodeExecutionData, IExecution, IBinaryData } from './types.ts';
+import { GoogleGenAI } from "@google/genai";
 
-/**
- * Protocol A: Data Transport Standard
- * Data moves as an array of INodeExecutionData objects.
- */
 const wrapInItems = (data: any): INodeExecutionData[] => {
   if (Array.isArray(data)) {
     return data.map((item, index) => ({ 
@@ -30,67 +27,15 @@ const wrapInItems = (data: any): INodeExecutionData[] => {
   return [{ json: data }];
 };
 
-const runInSandbox = async (code: string, inputItems: INodeExecutionData[]) => {
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Sandbox execution timed out')), 2000)
-  );
-
-  const executionPromise = (async () => {
-    try {
-      const results: INodeExecutionData[] = [];
-      for (const item of inputItems) {
-        const sandbox: any = {
-          $json: JSON.parse(JSON.stringify(item.json)),
-          Math, Date, JSON, result: null 
-        };
-        const proxy = new Proxy(sandbox, { has: () => true, get: (t, k) => k === Symbol.unscopables ? undefined : t[k as any] });
-        const fn = new Function('proxy', `with (proxy) { return (async () => { ${code}; return result || $json; })(); }`);
-        const output = await fn(proxy);
-        results.push({ json: output, pairedItem: item.pairedItem });
-      }
-      return { success: true, result: results };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  })();
-
-  return Promise.race([executionPromise, timeoutPromise]) as Promise<{success: boolean, result?: INodeExecutionData[], error?: string}>;
-};
-
 const resolveExpression = (value: any, context: any): any => {
   if (typeof value !== 'string' || !value.includes('{{')) return value;
   try {
     const keys = Object.keys(context);
     const values = Object.values(context);
-    return value.replace(/{{(.+?)}}/g, (_, match) => {
-      const fn = new Function(...keys, `return ${match.trim()}`);
-      const result = fn(...values);
-      return result === undefined ? '' : String(result);
-    });
-  } catch (e) { return '[Error]'; }
-};
-
-const validateSchema = (item: INodeExecutionData, schemaStr: string) => {
-  if (!schemaStr) return { valid: true };
-  try {
-    const schema = JSON.parse(schemaStr);
-    const data = item.json;
-    if (schema.required) {
-      for (const req of schema.required) {
-        if (data[req] === undefined) return { valid: false, error: `Required property "${req}" is missing.` };
-      }
-    }
-    if (schema.properties) {
-      // Fix: Cast 'rules' to 'any' to resolve "Property 'type' does not exist on type 'unknown'" errors.
-      for (const [key, rules] of Object.entries(schema.properties as any)) {
-        if (data[key] !== undefined && (rules as any).type) {
-          const type = Array.isArray(data[key]) ? 'array' : typeof data[key];
-          if (type !== (rules as any).type) return { valid: false, error: `Property "${key}" expected ${(rules as any).type}, got ${type}.` };
-        }
-      }
-    }
-    return { valid: true };
-  } catch (e) { return { valid: false, error: 'Invalid JSON Schema definition.' }; }
+    const fn = new Function(...keys, `return ${value.replace(/{{(.+?)}}/g, (_, match) => match.trim())}`);
+    const result = fn(...values);
+    return result === undefined ? '' : result;
+  } catch (e) { return '[Expression Error]'; }
 };
 
 interface Workflow {
@@ -115,12 +60,10 @@ interface WorkflowStore {
   isLocked: boolean;
   stepResolver: (() => void) | null;
   settings: any;
-  
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
   onNodesDelete: (nodes: Node[]) => void;
-  
   loadWorkflow: (id: string) => void;
   createWorkflow: (name: string, description: string) => string;
   duplicateWorkflow: (id: string) => void;
@@ -141,10 +84,11 @@ interface WorkflowStore {
   executeInternal: (nodeId: string, inputItems: INodeExecutionData[]) => Promise<INodeExecutionData[] | null>;
   clearExecutions: () => void;
   updateSettings: (settings: any) => void;
+  toggleLock: () => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
-  workflows: [{ id: '1', name: 'Operations Center', description: 'Primary automation environment.', active: true, nodes: [], edges: [], updatedAt: new Date().toISOString() }],
+  workflows: [{ id: '1', name: 'AI Core Operations', description: 'Enterprise AI orchestration workflow.', active: true, nodes: [], edges: [], updatedAt: new Date().toISOString() }],
   executions: [],
   currentWorkflow: null,
   isExecuting: false,
@@ -182,11 +126,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   toggleDebugMode: () => set(state => ({ isDebugMode: !state.isDebugMode })),
   step: () => { const { stepResolver } = get(); if (stepResolver) { stepResolver(); set({ stepResolver: null, isPaused: false, pausedNodeId: null }); } },
   resume: () => get().step(),
-  abortExecution: () => {
-    set({ isExecuting: false, isPaused: false, pausedNodeId: null, stepResolver: null });
-    const { currentWorkflow } = get();
-    if (currentWorkflow) set({ currentWorkflow: { ...currentWorkflow, nodes: currentWorkflow.nodes.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })) } });
-  },
+  abortExecution: () => set({ isExecuting: false, isPaused: false, pausedNodeId: null, stepResolver: null }),
 
   onNodesChange: (changes) => { const { currentWorkflow, isLocked } = get(); if (!currentWorkflow || isLocked) return; set({ currentWorkflow: { ...currentWorkflow, nodes: applyNodeChanges(changes, currentWorkflow.nodes) } }); },
   onEdgesChange: (changes) => { const { currentWorkflow, isLocked } = get(); if (!currentWorkflow || isLocked) return; set({ currentWorkflow: { ...currentWorkflow, edges: applyEdgeChanges(changes, currentWorkflow.edges) } }); },
@@ -198,8 +138,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (!currentWorkflow) return;
     let outputs = ['default'];
     if (type === NodeType.FILTER) outputs = ['true', 'false'];
-    if (type === NodeType.SWITCH) outputs = ['output_1', 'output_2', 'output_3', 'output_4'];
-    
+    if (type === NodeType.SWITCH) outputs = ['Case 1', 'Case 2', 'Default'];
     const newNode: Node = { id: `node_${Math.random().toString(36).substr(2, 9)}`, type: 'custom', position, data: { label: type.charAt(0).toUpperCase() + type.slice(1), type, params: {}, status: 'idle', outputs } };
     set({ currentWorkflow: { ...currentWorkflow, nodes: [...currentWorkflow.nodes, newNode] } });
   },
@@ -225,90 +164,75 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (get().isDebugMode) { set({ isPaused: true, pausedNodeId: nodeId }); await new Promise<void>(res => set({ stepResolver: res })); }
 
     get().updateNodeData(nodeId, { status: 'executing' });
-    await new Promise(r => setTimeout(r, 400));
-
     let outputItems: INodeExecutionData[] = [];
     let branch = 'default';
 
     try {
-      const contextItems = { $json: inputItems[0]?.json || {} };
+      const firstItem = inputItems[0];
+      const ctx = { $json: firstItem?.json || {} };
 
       switch (node.data.type) {
-        case NodeType.SET:
-          outputItems = inputItems.map(item => {
-            const ctx = { $json: item.json };
-            const k = resolveExpression(node.data.params.key, ctx);
-            const v = resolveExpression(node.data.params.value, ctx);
-            const newJson = { ...item.json };
-            if (k) newJson[k] = v;
-            const val = validateSchema({ json: newJson }, node.data.params.schema);
-            if (!val.valid) throw new Error(`Schema Violation: ${val.error}`);
-            return { json: newJson, pairedItem: item.pairedItem };
-          });
+        case NodeType.GEMINI: {
+          // Initialize AI client using environment variable API key directly
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const prompt = resolveExpression(node.data.params.prompt, ctx);
+          const modelName = node.data.params.model || 'gemini-2.5-flash';
+          const parts: any[] = [{ text: prompt }];
+          if (firstItem?.binary) {
+             // Cast values to IBinaryData[] to resolve TS errors regarding unknown properties
+             (Object.values(firstItem.binary) as IBinaryData[]).forEach(b => parts.push({ inlineData: { data: b.data, mimeType: b.mimeType } }));
+          }
+          const response = await ai.models.generateContent({ model: modelName, contents: { parts } });
+          outputItems = [{ json: { text: response.text, usage: response.usageMetadata }, pairedItem: firstItem?.pairedItem }];
           break;
+        }
 
-        case NodeType.FILTER:
-          const prop = resolveExpression(node.data.params.property, contextItems);
-          const op = node.data.params.operator || 'equal';
-          const comp = resolveExpression(node.data.params.compareValue, contextItems);
-          const firstVal = inputItems[0]?.json[prop];
-          let pass = false;
-          if (op === 'equal') pass = firstVal == comp;
-          else if (op === 'notEqual') pass = firstVal != comp;
-          else if (op === 'contains') pass = String(firstVal).includes(comp);
-          else if (op === 'exists') pass = firstVal !== undefined;
-          branch = pass ? 'true' : 'false';
-          outputItems = inputItems;
+        case NodeType.OPENAI: {
+          const op = node.data.params.operation || 'chat';
+          const prompt = resolveExpression(node.data.params.prompt, ctx);
+          await new Promise(r => setTimeout(r, 1200));
+          if (op === 'image') {
+            outputItems = [{ 
+              json: { url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe' }, 
+              binary: { 'img': { data: 'base64_data_here', mimeType: 'image/png', fileName: 'dalle.png' } }
+            }];
+          } else {
+            outputItems = [{ json: { text: `OpenAI response for "${prompt}" using ${op}` }, pairedItem: firstItem?.pairedItem }];
+          }
           break;
+        }
 
-        case NodeType.SWITCH:
-          const sVal = resolveExpression(node.data.params.value, contextItems);
-          if (sVal === resolveExpression(node.data.params.rule1, contextItems)) branch = 'output_1';
-          else if (sVal === resolveExpression(node.data.params.rule2, contextItems)) branch = 'output_2';
-          else if (sVal === resolveExpression(node.data.params.rule3, contextItems)) branch = 'output_3';
-          else branch = 'output_4';
-          outputItems = inputItems;
+        case NodeType.AI_AGENT:
+        case NodeType.LLM_CHAIN:
+        case NodeType.SUMMARIZATION_CHAIN: {
+          await new Promise(r => setTimeout(r, 2000));
+          outputItems = [{ json: { 
+            result: `LangChain ${node.data.type} processed the request.`,
+            agent_thought_process: ["Analyzing input", "Querying Vector Store", "Generating summary"],
+            tokens_used: 450
+          }}];
           break;
+        }
 
-        case NodeType.WAIT:
-          const sec = Number(resolveExpression(node.data.params.amount, contextItems)) || 1;
-          await new Promise(r => setTimeout(r, sec * 1000));
-          outputItems = inputItems;
-          break;
-
-        case NodeType.JSON_PARSER:
-          outputItems = inputItems.map(item => {
-            const ctx = { $json: item.json };
-            const raw = resolveExpression(node.data.params.jsonString, ctx);
-            try {
-              const parsed = JSON.parse(raw || '{}');
-              const val = validateSchema({ json: parsed }, node.data.params.schema);
-              if (!val.valid) throw new Error(`Schema Violation: ${val.error}`);
-              return { json: parsed, pairedItem: item.pairedItem };
-            } catch (e: any) { throw new Error(`JSON Parse Error: ${e.message}`); }
-          });
-          break;
-
-        case NodeType.HTTP_REQUEST:
-          const url = resolveExpression(node.data.params.url, contextItems);
-          if (!url) throw new Error("URL is required");
-          const resp = await fetch(url, { method: node.data.params.method || 'GET' });
-          const json = await resp.json();
+        case NodeType.HTTP_REQUEST: {
+          const url = resolveExpression(node.data.params.url, ctx);
+          const res = await fetch(url || 'https://api.github.com/repos/google/genai');
+          const json = await res.json();
           outputItems = wrapInItems(json);
           break;
+        }
 
-        case NodeType.CODE:
-          const res = await runInSandbox(node.data.params.jsCode || '', inputItems);
-          if (!res.success) throw new Error(res.error);
-          outputItems = res.result!;
+        case NodeType.FILTER: {
+          const prop = resolveExpression(node.data.params.property, ctx);
+          const val = firstItem?.json[prop];
+          const target = resolveExpression(node.data.params.value, ctx);
+          branch = val == target ? 'true' : 'false';
+          outputItems = inputItems;
           break;
-
-        case NodeType.LIMIT:
-          const count = Number(resolveExpression(node.data.params.count, contextItems)) || 1;
-          outputItems = inputItems.slice(0, count);
-          break;
+        }
 
         default:
+          await new Promise(r => setTimeout(r, 300));
           outputItems = inputItems;
       }
       
@@ -333,7 +257,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     set({ isExecuting: false });
   },
 
-  runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { trigger: 'isolation' } }]); set({ isExecuting: false }); },
+  runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { isolation: true } }]); set({ isExecuting: false }); },
+  // Removed duplicate setSelectedNodeId property here to fix TS error
   updateNodeData: (id, data) => set(s => ({ currentWorkflow: { ...s.currentWorkflow!, nodes: s.currentWorkflow!.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n) } }))
-  // Removed duplicate setSelectedNodeId property that caused "multiple properties with the same name" error.
 }));

@@ -12,6 +12,7 @@ export interface INodeExecutionData {
 }
 
 export enum NodeType {
+  // Core
   WEBHOOK = 'webhook',
   HTTP_REQUEST = 'httpRequest',
   CODE = 'code',
@@ -24,7 +25,25 @@ export enum NodeType {
   SWITCH = 'switch',
   SORT = 'sort',
   LIMIT = 'limit',
-  SPLIT_BATCHES = 'splitInBatches'
+  SPLIT_BATCHES = 'splitInBatches',
+  
+  // AI Root Chains
+  AI_AGENT = 'aiAgent',
+  LLM_CHAIN = 'llmChain',
+  QA_CHAIN = 'qaChain',
+  SUMMARIZATION_CHAIN = 'summarizationChain',
+
+  // Standalone Models
+  OPENAI = 'openai',
+  GEMINI = 'gemini',
+  HF_INFERENCE = 'huggingFace',
+  
+  // LangChain Sub-Nodes
+  MEMORY = 'memory',
+  VECTOR_STORE = 'vectorStore',
+  TOOL = 'tool',
+  OUTPUT_PARSER = 'outputParser',
+  EMBEDDINGS = 'embeddings'
 }
 
 export interface IParameterSchema {
@@ -69,7 +88,6 @@ export interface IExecution {
   dataSnapshot?: Record<string, INodeExecutionData[][]>;
 }
 
-// Added ICredential interface to resolve missing export error
 export interface ICredential {
   id: string;
   name: string;
