@@ -16,105 +16,81 @@ import {
 } from 'reactflow';
 import { NodeType, INodeExecutionData, IExecution } from './types.ts';
 
-const runInSandbox = async (code: string, inputData: any) => {
+/**
+ * Protocol A: Data Transport Standard
+ * Data moves as an array of INodeExecutionData objects.
+ */
+const wrapInItems = (data: any): INodeExecutionData[] => {
+  if (Array.isArray(data)) {
+    return data.map((item, index) => ({ 
+      json: typeof item === 'object' ? item : { value: item },
+      pairedItem: { item: index }
+    }));
+  }
+  return [{ json: data }];
+};
+
+const runInSandbox = async (code: string, inputItems: INodeExecutionData[]) => {
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Sandbox execution timed out (2s limit)')), 2000)
+    setTimeout(() => reject(new Error('Sandbox execution timed out')), 2000)
   );
 
   const executionPromise = (async () => {
     try {
-      const sandbox: any = {
-        $json: JSON.parse(JSON.stringify(inputData)),
-        console: { log: (...args: any[]) => console.log('[OpenFlow-Sandbox]', ...args) },
-        Math, Date, JSON, 
-        result: null 
-      };
-
-      const proxy = new Proxy(sandbox, {
-        has: () => true,
-        get: (target, key) => {
-          if (key === Symbol.unscopables) return undefined;
-          if (key in target) return target[key];
-          if (['window', 'document', 'globalThis', 'top', 'parent', 'self', 'frames'].includes(key as string)) {
-             throw new ReferenceError(`Access to ${String(key)} is restricted in this environment.`);
-          }
-          return undefined;
-        }
-      });
-
-      const fn = new Function('proxy', `
-        with (proxy) {
-          return (async () => {
-            ${code}
-            return typeof result !== "undefined" && result !== null ? result : $json;
-          })();
-        }
-      `);
-
-      return { success: true, result: await fn(proxy) };
+      const results: INodeExecutionData[] = [];
+      for (const item of inputItems) {
+        const sandbox: any = {
+          $json: JSON.parse(JSON.stringify(item.json)),
+          Math, Date, JSON, result: null 
+        };
+        const proxy = new Proxy(sandbox, { has: () => true, get: (t, k) => k === Symbol.unscopables ? undefined : t[k as any] });
+        const fn = new Function('proxy', `with (proxy) { return (async () => { ${code}; return result || $json; })(); }`);
+        const output = await fn(proxy);
+        results.push({ json: output, pairedItem: item.pairedItem });
+      }
+      return { success: true, result: results };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
   })();
 
-  return Promise.race([executionPromise, timeoutPromise]) as Promise<{success: boolean, result?: any, error?: string}>;
+  return Promise.race([executionPromise, timeoutPromise]) as Promise<{success: boolean, result?: INodeExecutionData[], error?: string}>;
 };
 
 const resolveExpression = (value: any, context: any): any => {
-  if (typeof value !== 'string') return value;
-  if (!value.includes('{{')) return value;
-
-  const fullMatch = value.match(/^{{\s*(.+?)\s*}}$/);
-  if (fullMatch) {
-    try {
-      const keys = Object.keys(context);
-      const values = Object.values(context);
-      const fn = new Function(...keys, `return ${fullMatch[1]}`);
-      return fn(...values);
-    } catch (e) {
-      return undefined;
-    }
-  }
-
-  return value.replace(/{{(.+?)}}/g, (_, match) => {
-    try {
-      const keys = Object.keys(context);
-      const values = Object.values(context);
+  if (typeof value !== 'string' || !value.includes('{{')) return value;
+  try {
+    const keys = Object.keys(context);
+    const values = Object.values(context);
+    return value.replace(/{{(.+?)}}/g, (_, match) => {
       const fn = new Function(...keys, `return ${match.trim()}`);
       const result = fn(...values);
       return result === undefined ? '' : String(result);
-    } catch (e) {
-      return `[Error]`;
-    }
-  });
+    });
+  } catch (e) { return '[Error]'; }
 };
 
-const validateJsonSchema = (data: any, schemaString: string) => {
-  if (!schemaString || !schemaString.trim()) return { valid: true };
+const validateSchema = (item: INodeExecutionData, schemaStr: string) => {
+  if (!schemaStr) return { valid: true };
   try {
-    const schema = JSON.parse(schemaString);
-    if (schema.required && Array.isArray(schema.required)) {
-      for (const key of schema.required) {
-        if (data[key] === undefined) {
-          return { valid: false, error: `Missing required field: ${key}` };
-        }
+    const schema = JSON.parse(schemaStr);
+    const data = item.json;
+    if (schema.required) {
+      for (const req of schema.required) {
+        if (data[req] === undefined) return { valid: false, error: `Required property "${req}" is missing.` };
       }
     }
     if (schema.properties) {
+      // Fix: Cast 'rules' to 'any' to resolve "Property 'type' does not exist on type 'unknown'" errors.
       for (const [key, rules] of Object.entries(schema.properties as any)) {
-        if (data[key] !== undefined && rules.type) {
-          const actualType = Array.isArray(data[key]) ? 'array' : typeof data[key];
-          const expectedType = rules.type;
-          if (expectedType !== actualType) {
-            return { valid: false, error: `Field "${key}" expected ${expectedType}, got ${actualType}` };
-          }
+        if (data[key] !== undefined && (rules as any).type) {
+          const type = Array.isArray(data[key]) ? 'array' : typeof data[key];
+          if (type !== (rules as any).type) return { valid: false, error: `Property "${key}" expected ${(rules as any).type}, got ${type}.` };
         }
       }
     }
     return { valid: true };
-  } catch (e) {
-    return { valid: false, error: "Invalid Schema: The provided string is not valid JSON." };
-  }
+  } catch (e) { return { valid: false, error: 'Invalid JSON Schema definition.' }; }
 };
 
 interface Workflow {
@@ -154,26 +130,21 @@ interface WorkflowStore {
   addNode: (type: NodeType, position: XYPosition) => void;
   cloneNode: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
-  deleteSelected: () => void;
   retryNode: (nodeId: string) => Promise<void>;
   runWorkflow: () => Promise<void>;
-  runFromNode: (nodeId: string) => Promise<void>;
   runNodeInstance: (nodeId: string) => Promise<void>;
   setSelectedNodeId: (id: string | null) => void;
   toggleDebugMode: () => void;
   step: () => void;
   resume: () => void;
   abortExecution: () => void;
-  executeInternal: (nodeId: string, inputData: any, continueDownstream?: boolean) => Promise<any>;
-  updateSettings: (settings: any) => void;
+  executeInternal: (nodeId: string, inputItems: INodeExecutionData[]) => Promise<INodeExecutionData[] | null>;
   clearExecutions: () => void;
+  updateSettings: (settings: any) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
-  workflows: [{ 
-    id: '1', name: 'Operations Center', description: 'Primary automation environment.', 
-    active: true, nodes: [], edges: [], updatedAt: new Date().toISOString()
-  }],
+  workflows: [{ id: '1', name: 'Operations Center', description: 'Primary automation environment.', active: true, nodes: [], edges: [], updatedAt: new Date().toISOString() }],
   executions: [],
   currentWorkflow: null,
   isExecuting: false,
@@ -200,83 +171,27 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   duplicateWorkflow: (id) => {
     const wf = get().workflows.find(w => w.id === id);
     if (!wf) return;
-    const newId = `wf_${Math.random().toString(36).substr(2, 9)}`;
-    const copy = { 
-      ...JSON.parse(JSON.stringify(wf)), 
-      id: newId, 
-      name: `${wf.name} (Copy)`, 
-      updatedAt: new Date().toISOString(),
-      active: false
-    };
+    const copy = { ...JSON.parse(JSON.stringify(wf)), id: `wf_${Math.random().toString(36).substr(2, 9)}`, name: `${wf.name} (Copy)`, updatedAt: new Date().toISOString(), active: false };
     set(state => ({ workflows: [...state.workflows, copy] }));
   },
 
-  deleteWorkflow: (id) => {
-    set(state => ({ 
-      workflows: state.workflows.filter(w => w.id !== id),
-      currentWorkflow: state.currentWorkflow?.id === id ? null : state.currentWorkflow
-    }));
-  },
-
-  toggleWorkflowActive: (id) => {
-    set(state => ({ 
-      workflows: state.workflows.map(w => w.id === id ? { ...w, active: !w.active } : w) 
-    }));
-  },
-
+  deleteWorkflow: (id) => set(state => ({ workflows: state.workflows.filter(w => w.id !== id), currentWorkflow: state.currentWorkflow?.id === id ? null : state.currentWorkflow })),
+  toggleWorkflowActive: (id) => set(state => ({ workflows: state.workflows.map(w => w.id === id ? { ...w, active: !w.active } : w) })),
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
   toggleLock: () => set(state => ({ isLocked: !state.isLocked })),
   toggleDebugMode: () => set(state => ({ isDebugMode: !state.isDebugMode })),
-  step: () => {
-    const { stepResolver } = get();
-    if (stepResolver) {
-      stepResolver();
-      set({ stepResolver: null, isPaused: false, pausedNodeId: null });
-    }
-  },
+  step: () => { const { stepResolver } = get(); if (stepResolver) { stepResolver(); set({ stepResolver: null, isPaused: false, pausedNodeId: null }); } },
   resume: () => get().step(),
   abortExecution: () => {
     set({ isExecuting: false, isPaused: false, pausedNodeId: null, stepResolver: null });
     const { currentWorkflow } = get();
-    if (currentWorkflow) {
-      const resetNodes = currentWorkflow.nodes.map(n => ({ ...n, data: { ...n.data, status: 'idle' } }));
-      set({ currentWorkflow: { ...currentWorkflow, nodes: resetNodes } });
-    }
+    if (currentWorkflow) set({ currentWorkflow: { ...currentWorkflow, nodes: currentWorkflow.nodes.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })) } });
   },
 
-  updateSettings: (newSettings) => set(state => ({ settings: { ...state.settings, ...newSettings } })),
-  clearExecutions: () => set({ executions: [] }),
-
-  onNodesChange: (changes) => {
-    const { currentWorkflow, isLocked } = get();
-    if (!currentWorkflow || isLocked) return;
-    set({ currentWorkflow: { ...currentWorkflow, nodes: applyNodeChanges(changes, currentWorkflow.nodes) } });
-  },
-  
-  onEdgesChange: (changes) => {
-    const { currentWorkflow, isLocked } = get();
-    if (!currentWorkflow || isLocked) return;
-    set({ currentWorkflow: { ...currentWorkflow, edges: applyEdgeChanges(changes, currentWorkflow.edges) } });
-  },
-  
-  onConnect: (connection) => {
-    const { currentWorkflow, isLocked } = get();
-    if (!currentWorkflow || isLocked) return;
-    set({ currentWorkflow: { ...currentWorkflow, edges: addEdge({ ...connection, id: `e_${Math.random().toString(36).substr(2, 6)}`, style: { stroke: '#38bdf8', strokeWidth: 3 }, animated: true }, currentWorkflow.edges) } });
-  },
-
-  onNodesDelete: (nodesToDelete) => {
-    const { currentWorkflow } = get();
-    if (!currentWorkflow) return;
-    const ids = nodesToDelete.map(n => n.id);
-    set({
-      currentWorkflow: {
-        ...currentWorkflow,
-        nodes: currentWorkflow.nodes.filter(n => !ids.includes(n.id)),
-        edges: currentWorkflow.edges.filter(e => !ids.includes(e.source) && !ids.includes(e.target))
-      }
-    });
-  },
+  onNodesChange: (changes) => { const { currentWorkflow, isLocked } = get(); if (!currentWorkflow || isLocked) return; set({ currentWorkflow: { ...currentWorkflow, nodes: applyNodeChanges(changes, currentWorkflow.nodes) } }); },
+  onEdgesChange: (changes) => { const { currentWorkflow, isLocked } = get(); if (!currentWorkflow || isLocked) return; set({ currentWorkflow: { ...currentWorkflow, edges: applyEdgeChanges(changes, currentWorkflow.edges) } }); },
+  onConnect: (connection) => { const { currentWorkflow, isLocked } = get(); if (!currentWorkflow || isLocked) return; set({ currentWorkflow: { ...currentWorkflow, edges: addEdge({ ...connection, id: `e_${Math.random().toString(36).substr(2, 6)}`, style: { stroke: '#38bdf8', strokeWidth: 3 }, animated: true }, currentWorkflow.edges) } }); },
+  onNodesDelete: (nodes) => { const { currentWorkflow } = get(); if (!currentWorkflow) return; const ids = nodes.map(n => n.id); set({ currentWorkflow: { ...currentWorkflow, nodes: currentWorkflow.nodes.filter(n => !ids.includes(n.id)), edges: currentWorkflow.edges.filter(e => !ids.includes(e.source) && !ids.includes(e.target)) } }); },
 
   addNode: (type, position) => {
     const { currentWorkflow } = get();
@@ -284,250 +199,141 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     let outputs = ['default'];
     if (type === NodeType.FILTER) outputs = ['true', 'false'];
     if (type === NodeType.SWITCH) outputs = ['output_1', 'output_2', 'output_3', 'output_4'];
-
-    const newNode: Node = { 
-      id: `node_${Math.random().toString(36).substr(2, 9)}`, 
-      type: 'custom', 
-      position, 
-      data: { 
-        label: type.charAt(0).toUpperCase() + type.slice(1).replace(/([A-Z])/g, ' $1'), 
-        type, 
-        params: {}, 
-        status: 'idle', 
-        outputs 
-      } 
-    };
+    
+    const newNode: Node = { id: `node_${Math.random().toString(36).substr(2, 9)}`, type: 'custom', position, data: { label: type.charAt(0).toUpperCase() + type.slice(1), type, params: {}, status: 'idle', outputs } };
     set({ currentWorkflow: { ...currentWorkflow, nodes: [...currentWorkflow.nodes, newNode] } });
   },
 
-  cloneNode: (nodeId) => {
+  cloneNode: (id) => {
     const { currentWorkflow } = get();
-    if (!currentWorkflow) return;
-    const node = currentWorkflow.nodes.find(n => n.id === nodeId);
+    const node = currentWorkflow?.nodes.find(n => n.id === id);
     if (!node) return;
-
-    const newNode: Node = {
-      ...JSON.parse(JSON.stringify(node)),
-      id: `node_${Math.random().toString(36).substr(2, 9)}`,
-      position: { x: node.position.x + 50, y: node.position.y + 50 },
-      selected: false,
-      data: { ...node.data, status: 'idle', lastResult: undefined, error: undefined }
-    };
-    set({ currentWorkflow: { ...currentWorkflow, nodes: [...currentWorkflow.nodes, newNode] } });
+    const newNode = { ...JSON.parse(JSON.stringify(node)), id: `node_${Math.random().toString(36).substr(2, 9)}`, position: { x: node.position.x + 40, y: node.position.y + 40 }, selected: false, data: { ...node.data, status: 'idle' } };
+    set({ currentWorkflow: { ...currentWorkflow!, nodes: [...currentWorkflow!.nodes, newNode] } });
   },
 
-  deleteNode: (nodeId) => {
-    const { currentWorkflow } = get();
-    if (!currentWorkflow) return;
-    set({
-      currentWorkflow: {
-        ...currentWorkflow,
-        nodes: currentWorkflow.nodes.filter(n => n.id !== nodeId),
-        edges: currentWorkflow.edges.filter(e => e.source !== nodeId && e.target !== nodeId)
-      }
-    });
-  },
+  deleteNode: (id) => get().onNodesDelete([{ id } as any]),
+  retryNode: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { retry: true } }]); set({ isExecuting: false }); },
+  clearExecutions: () => set({ executions: [] }),
+  updateSettings: (newSettings) => set(s => ({ settings: { ...s.settings, ...newSettings } })),
 
-  deleteSelected: () => {
-    const { currentWorkflow } = get();
-    if (!currentWorkflow) return;
-    const selectedNodes = currentWorkflow.nodes.filter(n => n.selected);
-    get().onNodesDelete(selectedNodes);
-  },
-
-  retryNode: async (nodeId) => {
-    if (get().isExecuting) return;
-    set({ isExecuting: true });
-    // Pull the input from the most recent upstream execution or default to empty
-    const edges = get().currentWorkflow?.edges.filter(e => e.target === nodeId);
-    let inputData = { retry: true };
-    if (edges && edges.length > 0) {
-      const source = get().currentWorkflow?.nodes.find(n => n.id === edges[0].source);
-      if (source?.data.lastResult) inputData = source.data.lastResult[0][0].json;
-    }
-    await get().executeInternal(nodeId, inputData, false);
-    set({ isExecuting: false });
-  },
-
-  executeInternal: async (nodeId, inputData = {}, continueDownstream = true) => {
+  executeInternal: async (nodeId, inputItems) => {
     if (!get().isExecuting) return null;
     const node = get().currentWorkflow?.nodes.find(n => n.id === nodeId);
     if (!node) return null;
 
-    if (get().isDebugMode) {
-      set({ isPaused: true, pausedNodeId: nodeId });
-      await new Promise<void>(resolve => set({ stepResolver: resolve }));
-    }
+    if (get().isDebugMode) { set({ isPaused: true, pausedNodeId: nodeId }); await new Promise<void>(res => set({ stepResolver: res })); }
 
     get().updateNodeData(nodeId, { status: 'executing' });
     await new Promise(r => setTimeout(r, 400));
 
-    const context = { $json: inputData };
-    const resolvedParams: Record<string, any> = {};
-    Object.entries(node.data.params || {}).forEach(([key, value]) => {
-      resolvedParams[key] = resolveExpression(value, context);
-    });
-
-    let outputData = JSON.parse(JSON.stringify(inputData));
+    let outputItems: INodeExecutionData[] = [];
     let branch = 'default';
 
     try {
+      const contextItems = { $json: inputItems[0]?.json || {} };
+
       switch (node.data.type) {
         case NodeType.SET:
-          const { key, value, schema: setSchema } = resolvedParams;
-          if (key) {
-            const keys = key.split('.');
-            let obj = outputData;
-            for (let i = 0; i < keys.length - 1; i++) {
-              if (!obj[keys[i]]) obj[keys[i]] = {};
-              obj = obj[keys[i]];
-            }
-            obj[keys[keys.length - 1]] = value;
-          }
-          if (setSchema) {
-            const validation = validateJsonSchema(outputData, setSchema);
-            if (!validation.valid) throw new Error(`Schema Validation Error: ${validation.error}`);
-          }
+          outputItems = inputItems.map(item => {
+            const ctx = { $json: item.json };
+            const k = resolveExpression(node.data.params.key, ctx);
+            const v = resolveExpression(node.data.params.value, ctx);
+            const newJson = { ...item.json };
+            if (k) newJson[k] = v;
+            const val = validateSchema({ json: newJson }, node.data.params.schema);
+            if (!val.valid) throw new Error(`Schema Violation: ${val.error}`);
+            return { json: newJson, pairedItem: item.pairedItem };
+          });
           break;
 
         case NodeType.FILTER:
-          const { property, operator = 'equal', compareValue } = resolvedParams;
-          const actualVal = outputData[property];
-          switch(operator) {
-            case 'notEqual': branch = actualVal != compareValue ? 'true' : 'false'; break;
-            case 'contains': branch = String(actualVal).includes(compareValue) ? 'true' : 'false'; break;
-            case 'exists': branch = actualVal !== undefined ? 'true' : 'false'; break;
-            default: branch = actualVal == compareValue ? 'true' : 'false'; break;
-          }
+          const prop = resolveExpression(node.data.params.property, contextItems);
+          const op = node.data.params.operator || 'equal';
+          const comp = resolveExpression(node.data.params.compareValue, contextItems);
+          const firstVal = inputItems[0]?.json[prop];
+          let pass = false;
+          if (op === 'equal') pass = firstVal == comp;
+          else if (op === 'notEqual') pass = firstVal != comp;
+          else if (op === 'contains') pass = String(firstVal).includes(comp);
+          else if (op === 'exists') pass = firstVal !== undefined;
+          branch = pass ? 'true' : 'false';
+          outputItems = inputItems;
           break;
 
         case NodeType.SWITCH:
-          const switchVal = resolvedParams.value;
-          if (switchVal === resolvedParams.rule1) branch = 'output_1';
-          else if (switchVal === resolvedParams.rule2) branch = 'output_2';
-          else if (switchVal === resolvedParams.rule3) branch = 'output_3';
+          const sVal = resolveExpression(node.data.params.value, contextItems);
+          if (sVal === resolveExpression(node.data.params.rule1, contextItems)) branch = 'output_1';
+          else if (sVal === resolveExpression(node.data.params.rule2, contextItems)) branch = 'output_2';
+          else if (sVal === resolveExpression(node.data.params.rule3, contextItems)) branch = 'output_3';
           else branch = 'output_4';
-          break;
-
-        case NodeType.MERGE:
-          // Intelligent Merge: if input is an array of items from multiple branches, combine them
-          branch = 'default';
-          break;
-
-        case NodeType.HTTP_REQUEST:
-          const { method = 'GET', url, body } = resolvedParams;
-          if (!url) throw new Error("URL is missing.");
-          const response = await fetch(url, { 
-            method, 
-            headers: { 'Content-Type': 'application/json' },
-            body: ['POST', 'PUT', 'PATCH'].includes(method) ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined
-          });
-          if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          outputData = (response.headers.get('content-type')?.includes('json')) ? await response.json() : { text: await response.text() };
-          break;
-
-        case NodeType.CODE:
-          const sandboxResult = await runInSandbox(node.data.params?.jsCode || '', inputData);
-          if (!sandboxResult.success) throw new Error(sandboxResult.error);
-          outputData = sandboxResult.result;
-          break;
-          
-        case NodeType.JSON_PARSER:
-          const { jsonString, schema: parserSchema } = resolvedParams;
-          try {
-            outputData = JSON.parse(jsonString || '{}');
-            if (parserSchema) {
-              const v = validateJsonSchema(outputData, parserSchema);
-              if (!v.valid) throw new Error(`Schema Validation Error: ${v.error}`);
-            }
-          } catch (e: any) {
-            throw new Error(`Parse Error: ${e.message}`);
-          }
+          outputItems = inputItems;
           break;
 
         case NodeType.WAIT:
-          await new Promise(r => setTimeout(r, (Number(resolvedParams.amount) || 1) * 1000));
+          const sec = Number(resolveExpression(node.data.params.amount, contextItems)) || 1;
+          await new Promise(r => setTimeout(r, sec * 1000));
+          outputItems = inputItems;
           break;
 
-        case NodeType.SPLIT_BATCHES:
-          const batchSize = Number(resolvedParams.size) || 10;
-          if (Array.isArray(outputData)) {
-            outputData = outputData.slice(0, batchSize);
-          }
+        case NodeType.JSON_PARSER:
+          outputItems = inputItems.map(item => {
+            const ctx = { $json: item.json };
+            const raw = resolveExpression(node.data.params.jsonString, ctx);
+            try {
+              const parsed = JSON.parse(raw || '{}');
+              const val = validateSchema({ json: parsed }, node.data.params.schema);
+              if (!val.valid) throw new Error(`Schema Violation: ${val.error}`);
+              return { json: parsed, pairedItem: item.pairedItem };
+            } catch (e: any) { throw new Error(`JSON Parse Error: ${e.message}`); }
+          });
+          break;
+
+        case NodeType.HTTP_REQUEST:
+          const url = resolveExpression(node.data.params.url, contextItems);
+          if (!url) throw new Error("URL is required");
+          const resp = await fetch(url, { method: node.data.params.method || 'GET' });
+          const json = await resp.json();
+          outputItems = wrapInItems(json);
+          break;
+
+        case NodeType.CODE:
+          const res = await runInSandbox(node.data.params.jsCode || '', inputItems);
+          if (!res.success) throw new Error(res.error);
+          outputItems = res.result!;
           break;
 
         case NodeType.LIMIT:
-          const limitCount = Number(resolvedParams.count) || 1;
-          if (Array.isArray(outputData)) outputData = outputData.slice(0, limitCount);
-          else outputData = [outputData].slice(0, limitCount)[0];
+          const count = Number(resolveExpression(node.data.params.count, contextItems)) || 1;
+          outputItems = inputItems.slice(0, count);
           break;
 
-        case NodeType.SORT:
-          const sortKey = resolvedParams.key;
-          if (Array.isArray(outputData) && sortKey) {
-            outputData.sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : -1));
-          }
-          break;
+        default:
+          outputItems = inputItems;
       }
       
-      const executionResult: INodeExecutionData[][] = [[{ json: outputData }]];
-      get().updateNodeData(nodeId, { status: 'success', lastResult: executionResult });
+      get().updateNodeData(nodeId, { status: 'success', lastResult: [outputItems] });
     } catch (e: any) {
       get().updateNodeData(nodeId, { status: 'error', error: { message: e.message, timestamp: new Date().toISOString() } });
       set({ isExecuting: false });
       return null;
     }
 
-    if (!continueDownstream) return outputData;
-
-    const outgoingEdges = get().currentWorkflow?.edges.filter(e => e.source === nodeId && (!e.sourceHandle || e.sourceHandle === branch));
-    if (outgoingEdges && outgoingEdges.length > 0) {
-      await Promise.all(outgoingEdges.map(edge => get().executeInternal(edge.target, outputData, true)));
-    }
-    return outputData;
+    const nextEdges = get().currentWorkflow?.edges.filter(e => e.source === nodeId && (!e.sourceHandle || e.sourceHandle === branch));
+    if (nextEdges?.length) await Promise.all(nextEdges.map(e => get().executeInternal(e.target, outputItems)));
+    return outputItems;
   },
 
   runWorkflow: async () => {
-    const { currentWorkflow } = get();
-    if (!currentWorkflow || get().isExecuting) return;
+    const wf = get().currentWorkflow;
+    if (!wf || get().isExecuting) return;
     set({ isExecuting: true });
-    set({ currentWorkflow: { ...currentWorkflow, nodes: currentWorkflow.nodes.map(n => ({ ...n, data: { ...n.data, status: 'idle', error: undefined } })) } });
-
-    const triggerNodes = currentWorkflow.nodes.filter(n => [NodeType.WEBHOOK, NodeType.CRON].includes(n.data.type));
-    const startNodes = triggerNodes.length > 0 ? triggerNodes : currentWorkflow.nodes.filter(n => !currentWorkflow.edges.some(e => e.target === n.id));
-    
-    await Promise.all(startNodes.map(n => get().executeInternal(n.id, { trigger: 'manual', timestamp: new Date().toISOString() })));
+    const startNodes = wf.nodes.filter(n => !wf.edges.some(e => e.target === n.id));
+    await Promise.all(startNodes.map(n => get().executeInternal(n.id, [{ json: { trigger: 'manual' } }])));
     set({ isExecuting: false });
   },
 
-  runFromNode: async (nodeId) => {
-    if (get().isExecuting) return;
-    set({ isExecuting: true });
-    const node = get().currentWorkflow?.nodes.find(n => n.id === nodeId);
-    if (!node) return;
-    const lastResult = node.data.lastResult?.[0]?.[0]?.json || { trigger: 'selective' };
-    await get().executeInternal(nodeId, lastResult, true);
-    set({ isExecuting: false });
-  },
-
-  runNodeInstance: async (nodeId) => {
-    if (get().isExecuting) return;
-    set({ isExecuting: true });
-    const upstreamEdges = get().currentWorkflow?.edges.filter(e => e.target === nodeId);
-    let inputData = { trigger: 'isolation' };
-    if (upstreamEdges && upstreamEdges.length > 0) {
-      const sourceNode = get().currentWorkflow?.nodes.find(n => n.id === upstreamEdges[0].source);
-      if (sourceNode?.data.lastResult) {
-        inputData = sourceNode.data.lastResult[0][0].json;
-      }
-    }
-    await get().executeInternal(nodeId, inputData, false);
-    set({ isExecuting: false });
-  },
-
-  updateNodeData: (nodeId, data) => {
-    const { currentWorkflow } = get();
-    if (!currentWorkflow) return;
-    set({ currentWorkflow: { ...currentWorkflow, nodes: currentWorkflow.nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n) } });
-  }
+  runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { trigger: 'isolation' } }]); set({ isExecuting: false }); },
+  updateNodeData: (id, data) => set(s => ({ currentWorkflow: { ...s.currentWorkflow!, nodes: s.currentWorkflow!.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n) } }))
+  // Removed duplicate setSelectedNodeId property that caused "multiple properties with the same name" error.
 }));
