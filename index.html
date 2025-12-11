@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenFlow - Enterprise Workflow Automation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/style.css">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              glass: 'rgba(255, 255, 255, 0.05)',
+              'glass-border': 'rgba(255, 255, 255, 0.1)',
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'glow': 'glow 2s ease-in-out infinite alternate',
+            },
+            keyframes: {
+              glow: {
+                '0%': { boxShadow: '0 0 5px rgba(56, 189, 248, 0.2)' },
+                '100%': { boxShadow: '0 0 20px rgba(56, 189, 248, 0.6)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --bg-deep: #0f172a;
+        --accent: #38bdf8;
+      }
+      body, html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        height: 100vh;
+        width: 100vw;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #111827 100%);
+        color: #f1f5f9;
+      }
+      #root {
+        height: 100vh;
+        width: 100vw;
+      }
+      .glass-card {
+        background: rgba(15, 23, 42, 0.6) !important;
+        backdrop-filter: blur(20px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      }
+      .glass-button {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: all 0.3s ease;
+      }
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      .react-flow__pane { background-color: transparent !important; }
+      .react-flow__handle {
+        width: 10px !important;
+        height: 10px !important;
+        background: var(--accent) !important;
+        border: 2px solid #0f172a !important;
+        box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+      }
+      .react-flow__edge-path {
+        stroke: var(--accent);
+        stroke-width: 2.5;
+        stroke-opacity: 0.5;
+      }
+      .react-flow__edge.animated .react-flow__edge-path {
+        stroke-dasharray: 6;
+        animation: dash 1s linear infinite;
+        stroke-opacity: 0.9;
+      }
+      @keyframes dash { from { stroke-dashoffset: 12; } to { stroke-dashoffset: 0; } }
+    </style>
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?external=react,react-dom",
+    "zustand": "https://esm.sh/zustand@4.5.2?external=react,react-dom",
+    "lucide-react": "https://esm.sh/lucide-react@0.363.0?external=react,react-dom",
+    "reactflow": "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/"
+  }
+}
+</script>
+</head>
+<body class="antialiased">
+    <div id="root"></div>
+</body>
+</html>
