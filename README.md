@@ -1,16 +1,6 @@
-
 # 🌌 OpenFlow: Enterprise Workflow Orchestrator
 
 **OpenFlow** is a production-grade, open-source workflow automation platform designed with a high-performance **Deep Glass** aesthetic. Built for scalability and security, it serves as a robust alternative to n8n, enabling technical teams to orchestrate complex data pipelines, infrastructure commands, and multimodal AI agents within a unified visual environment.
-
----
-
-## 💎 The "Deep Glass" Design System
-OpenFlow isn't just a tool; it's a visual experience. Our design system prioritizes focus, depth, and clarity:
-*   **Global Gradient**: Rich `slate-900` to `gray-900` transitions.
-*   **Backdrop Blur**: High-intensity `backdrop-blur-xl` on all panels to maintain spatial context.
-*   **Translucent Borders**: `border-white/10` for subtle definition without visual clutter.
-*   **Luminous States**: Neon-glow accents (`cyan-400` for success, `rose-500` for errors) that provide instant cognitive feedback.
 
 ---
 
