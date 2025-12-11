@@ -24,12 +24,10 @@ const NODE_TEMPLATES = [
   ]},
   { category: 'AI Orchestration', nodes: [
     { type: NodeType.AI_AGENT, label: 'AI Agent', icon: Bot, description: 'Autonomous agent with tool usage', schema: [
-      { name: 'credentialId', label: 'Vault Secret', type: 'credential', credentialType: 'apiKey' },
       { name: 'prompt', label: 'System Instruction', type: 'string', description: 'Define the agents persona' },
       { name: 'model', label: 'Model', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
     ]},
     { type: NodeType.GEMINI, label: 'Google Gemini', icon: Sparkles, description: 'Multimodal Generative AI', schema: [
-      { name: 'credentialId', label: 'API Key Source', type: 'credential', credentialType: 'apiKey' },
       { name: 'operation', label: 'Operation', type: 'options', default: 'message', options: [{label: 'Chat/Message', value: 'message'}, {label: 'Vision/Image', value: 'vision'}] },
       { name: 'prompt', label: 'Input Prompt', type: 'string' },
       { name: 'model', label: 'Model Name', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
