@@ -101,6 +101,23 @@ export const useWorkflowStore = create<WorkflowStore>()(
       workflows: [],
       libraryItems: [
         { 
+          id: 'tpl_code_test',
+          name: 'JS Logic Testbed',
+          description: 'A playground to test custom JavaScript execution logic.',
+          category: 'DevOps',
+          complexity: 'Low',
+          color: 'emerald',
+          nodes: [
+            { id: 'c1', type: 'custom', position: { x: 0, y: 0 }, data: { label: 'Manual Trigger', type: NodeType.WEBHOOK, params: {}, outputs: ['default'] } },
+            { id: 'c2', type: 'custom', position: { x: 300, y: 0 }, data: { label: 'Calculate Growth', type: NodeType.CODE, params: { jsCode: 'const base = $json.value || 100;\nreturn { \n  original: base, \n  result: base * 1.5, \n  status: "calculated",\n  timestamp: new Date().toISOString()\n};' }, outputs: ['default'] } },
+            { id: 'c3', type: 'custom', position: { x: 600, y: 0 }, data: { label: 'Final Result', type: NodeType.SET, params: { json: '{"summary": "Execution Successful"}' }, outputs: ['default'] } }
+          ],
+          edges: [
+            { id: 'ec1', source: 'c1', target: 'c2', animated: true, style: { stroke: '#38bdf8', strokeWidth: 3 } },
+            { id: 'ec2', source: 'c2', target: 'c3', animated: true, style: { stroke: '#38bdf8', strokeWidth: 3 } }
+          ]
+        },
+        { 
           id: 'tpl_vision',
           name: 'Vision Triage Engine',
           description: 'Analyze screenshots with Gemini 2.5 and route to helpdesk.',
@@ -226,6 +243,13 @@ export const useWorkflowStore = create<WorkflowStore>()(
               const val = resolveExpression(node.data.params.json, ctx);
               outputItems = [{ json: typeof val === 'string' ? JSON.parse(val) : val }];
               break;
+            case NodeType.CODE:
+              const code = node.data.params.jsCode || 'return $json;';
+              // Simulate isolated VM execution using new Function with specific context
+              const executeCode = new Function('$json', `try { ${code} } catch(e) { throw e; }`);
+              const codeResult = executeCode(ctx.$json);
+              outputItems = [{ json: codeResult || {} }];
+              break;
             case NodeType.GEMINI:
               const prompt = resolveExpression(node.data.params.prompt, ctx);
               const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -263,12 +287,32 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const wf = get().currentWorkflow;
         if (!wf || get().isExecuting) return;
         set({ isExecuting: true });
+        
+        const executionId = `exec_${Math.random().toString(36).substr(2, 9)}`;
+        const startedAt = new Date().toLocaleString();
+        
         const startNodes = wf.nodes.filter(n => !wf.edges.some(e => e.target === n.id));
-        await Promise.all(startNodes.map(n => get().executeInternal(n.id, [{ json: { trigger: 'manual' } }])));
-        set({ isExecuting: false });
+        
+        const startTime = Date.now();
+        await Promise.all(startNodes.map(n => get().executeInternal(n.id, [{ json: { value: 100 } }])));
+        const duration = `${Date.now() - startTime}ms`;
+        
+        const newExecution: IExecution = {
+          id: executionId,
+          workflowId: wf.id,
+          workflowName: wf.name,
+          status: 'success',
+          startedAt,
+          duration
+        };
+        
+        set(s => ({ 
+          isExecuting: false,
+          executions: [newExecution, ...s.executions].slice(0, 50)
+        }));
       },
 
-      runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { isolation: true } }]); set({ isExecuting: false }); },
+      runNodeInstance: async (id) => { set({ isExecuting: true }); await get().executeInternal(id, [{ json: { value: 100 } }]); set({ isExecuting: false }); },
       updateNodeData: (id, data) => set(s => ({ currentWorkflow: { ...s.currentWorkflow!, nodes: s.currentWorkflow!.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n) } }))
     }),
     {
