@@ -5,7 +5,7 @@ import {
   Webhook, Globe, Code, Clock, Filter, FileJson, Pause, Database, 
   Play, Copy, Trash2, Zap, AlertTriangle, ShieldCheck, 
   Bot, Sparkles, Brain, Terminal, Box, Layers, FileSearch, 
-  FileText, Archive, HardDrive, Wrench
+  FileText, Archive, HardDrive, Wrench, History, BrainCircuit
 } from 'lucide-react';
 import { NodeType } from '../types.ts';
 import { useWorkflowStore } from '../store.ts';
@@ -28,6 +28,9 @@ const IconMap: any = {
   [NodeType.QA_CHAIN]: FileSearch,
   [NodeType.SUMMARIZATION_CHAIN]: FileText,
   [NodeType.MEMORY]: Archive,
+  [NodeType.WINDOW_BUFFER_MEMORY]: History,
+  [NodeType.POSTGRES_CHAT_MEMORY]: Database,
+  [NodeType.REDIS_CHAT_MEMORY]: BrainCircuit,
   [NodeType.VECTOR_STORE]: HardDrive,
   [NodeType.TOOL]: Wrench,
   [NodeType.SSH]: Terminal

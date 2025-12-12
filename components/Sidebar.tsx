@@ -5,7 +5,8 @@ import {
   Terminal, Database, List, Code as CodeIcon, GitBranch, 
   Zap, Layers, MessageSquare, FileSearch, FileText, 
   Cpu, Archive, HardDrive, Wrench, Binary, Server, 
-  Webhook as WebhookIcon, Clock, Pause, Merge, Split, ArrowRightLeft, FileJson
+  Webhook as WebhookIcon, Clock, Pause, Merge, Split, ArrowRightLeft, FileJson,
+  Pin, PinOff, ChevronRight, ChevronLeft, BrainCircuit, History
 } from 'lucide-react';
 import { useWorkflowStore } from '../store.ts';
 import { NodeType } from '../types.ts';
@@ -22,18 +23,27 @@ const NODE_TEMPLATES = [
       { name: 'interval', label: 'Cron Expression', type: 'string', default: '0 * * * *', description: 'Standard cron format (* * * * *)' }
     ]},
   ]},
-  { category: 'AI Orchestration', nodes: [
+  { category: 'LangChain Framework', nodes: [
     { type: NodeType.AI_AGENT, label: 'AI Agent', icon: Bot, description: 'Autonomous agent with tool usage', schema: [
       { name: 'prompt', label: 'System Instruction', type: 'string', description: 'Define the agents persona' },
       { name: 'model', label: 'Model', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
     ]},
+    { type: NodeType.LLM_CHAIN, label: 'Basic LLM Chain', icon: Layers, description: 'Prompt-Response orchestration template', schema: [{ name: 'prompt', label: 'Prompt Template', type: 'string' }] },
+    { type: NodeType.QA_CHAIN, label: 'Question and Answer Chain', icon: FileSearch, description: 'Retrieval-augmented generation (RAG)', schema: [
+      { name: 'context', label: 'Context', type: 'string', default: '{{ $json.text }}', description: 'The knowledge base for answering' },
+      { name: 'query', label: 'User Query', type: 'string', default: '{{ $json.query }}', description: 'The question to be answered' }
+    ] },
+    { type: NodeType.SUMMARIZATION_CHAIN, label: 'Summarization Chain', icon: FileText, description: 'Compress long data using LC strategies', schema: [
+      { name: 'text', label: 'Input Text', type: 'string', default: '{{ $json.text }}', description: 'The text block to summarize' },
+      { name: 'type', label: 'Strategy', type: 'options', default: 'map_reduce', options: [{label: 'Stuffing (Single-Pass)', value: 'stuff'}, {label: 'Map Reduce (Chunked)', value: 'map_reduce'}, {label: 'Refine (Iterative)', value: 'refine'}] }
+    ] },
+  ]},
+  { category: 'AI Orchestration', nodes: [
     { type: NodeType.GEMINI, label: 'Google Gemini', icon: Sparkles, description: 'Multimodal Generative AI', schema: [
       { name: 'operation', label: 'Operation', type: 'options', default: 'message', options: [{label: 'Chat/Message', value: 'message'}, {label: 'Vision/Image', value: 'vision'}] },
       { name: 'prompt', label: 'Input Prompt', type: 'string' },
       { name: 'model', label: 'Model Name', type: 'options', default: 'gemini-2.5-flash', options: [{label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash'}, {label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro'}] }
     ]},
-    { type: NodeType.LLM_CHAIN, label: 'LLM Chain', icon: Layers, description: 'Prompt-Response template', schema: [{ name: 'prompt', label: 'Prompt Template', type: 'string' }] },
-    { type: NodeType.SUMMARIZATION_CHAIN, label: 'Summarizer', icon: FileText, description: 'Compress long data into summaries', schema: [{ name: 'type', label: 'Strategy', type: 'options', default: 'map_reduce', options: [{label: 'Stuff', value: 'stuff'}, {label: 'Map Reduce', value: 'map_reduce'}] }] },
   ]},
   { category: 'Infrastructure', nodes: [
     { type: NodeType.SSH, label: 'SSH Execution', icon: Terminal, description: 'Remote server shell commands', schema: [
@@ -68,7 +78,20 @@ const NODE_TEMPLATES = [
       { name: 'index', label: 'Index Name', type: 'string' }, 
       { name: 'action', label: 'Action', type: 'options', default: 'search', options: [{label: 'Search', value: 'search'}, {label: 'Upsert', value: 'upsert'}] }
     ]},
-    { type: NodeType.QA_CHAIN, label: 'QA Chain (RAG)', icon: FileSearch, description: 'Document retrieval chain', schema: [{ name: 'query', label: 'User Query', type: 'string' }] },
+    { type: NodeType.WINDOW_BUFFER_MEMORY, label: 'Window Buffer Memory', icon: History, description: 'Store sliding window of chat history', schema: [
+      { name: 'windowSize', label: 'Window Size (K)', type: 'number', default: 5, description: 'Number of messages to retain' },
+      { name: 'memoryKey', label: 'Memory Key', type: 'string', default: 'chat_history' }
+    ]},
+    { type: NodeType.POSTGRES_CHAT_MEMORY, label: 'Postgres Chat Memory', icon: Database, description: 'Persistent chat history via Postgres', schema: [
+      { name: 'credentialId', label: 'Database Auth', type: 'credential', credentialType: 'database' },
+      { name: 'tableName', label: 'Table Name', type: 'string', default: 'chat_history' },
+      { name: 'sessionId', label: 'Session ID', type: 'string', default: '{{ $json.sessionId }}' }
+    ]},
+    { type: NodeType.REDIS_CHAT_MEMORY, label: 'Redis Chat Memory', icon: BrainCircuit, description: 'Fast cache-based chat history via Redis', schema: [
+      { name: 'credentialId', label: 'Redis Auth', type: 'credential', credentialType: 'database' },
+      { name: 'sessionId', label: 'Session ID', type: 'string', default: '{{ $json.sessionId }}' },
+      { name: 'ttl', label: 'Expiration (Seconds)', type: 'number', default: 3600 }
+    ]},
   ]}
 ];
 
@@ -78,6 +101,11 @@ const Sidebar: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isExpressionOpen, setIsExpressionOpen] = useState(false);
   const [activeParam, setActiveParam] = useState<string | null>(null);
+
+  // Collapsible Sidebar States
+  const [isPinned, setIsPinned] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const isExpanded = isPinned || isHovered;
 
   const nodes = currentWorkflow?.nodes || [];
   const selectedNode = nodes.find(n => n.id === selectedNodeId);
@@ -98,9 +126,28 @@ const Sidebar: React.FC = () => {
 
   return (
     <>
-      <div className="flex flex-col h-full w-80 glass-card border-r border-white/5 z-20 flex-shrink-0">
-        <div className="p-8 space-y-6">
-          <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Node Library</h2>
+      <div 
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={`flex flex-col h-full glass-card border-r border-white/5 z-[70] flex-shrink-0 transition-all duration-500 ease-out relative shadow-2xl overflow-hidden ${isExpanded ? 'w-[320px]' : 'w-[72px]'}`}
+      >
+        {/* Toggle Pin Button */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); setIsPinned(!isPinned); }}
+          className={`absolute top-8 right-6 p-2 rounded-xl transition-all z-[80] ${isExpanded ? 'opacity-100 scale-100' : 'opacity-0 scale-50 pointer-events-none'} hover:bg-white/10 text-slate-500 hover:text-sky-400`}
+        >
+          {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+        </button>
+
+        {!isExpanded && (
+          <div className="absolute top-8 left-1/2 -translate-x-1/2 p-2 text-sky-500/40 animate-pulse">
+            <ChevronRight className="w-5 h-5" />
+          </div>
+        )}
+
+        {/* Header/Search Section */}
+        <div className={`p-8 space-y-6 transition-all duration-300 ${isExpanded ? 'opacity-100' : 'opacity-0 translate-x-[-20px]'}`}>
+          <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] whitespace-nowrap">Node Library</h2>
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <input 
@@ -111,23 +158,43 @@ const Sidebar: React.FC = () => {
             />
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 pb-8 space-y-8 scrollbar-hide">
+
+        {/* Nodes Grid */}
+        <div className={`flex-1 overflow-y-auto px-4 pb-8 space-y-8 scrollbar-hide transition-all duration-300 ${isExpanded ? 'px-6' : 'px-2'}`}>
           {filteredTemplates.map(cat => (
             <div key={cat.category} className="space-y-4">
-              <h3 className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2 flex items-center gap-2">
-                 <div className="w-1 h-1 rounded-full bg-sky-500/40" />
-                 {cat.category}
-              </h3>
+              {isExpanded ? (
+                <h3 className="text-[9px] font-black text-slate-600 uppercase tracking-widest px-2 flex items-center gap-2 whitespace-nowrap">
+                   <div className="w-1 h-1 rounded-full bg-sky-500/40" />
+                   {cat.category}
+                </h3>
+              ) : (
+                <div className="w-full border-t border-white/5 my-8 opacity-20" />
+              )}
               <div className="grid grid-cols-1 gap-3">
                 {cat.nodes.map(node => (
-                  <div key={node.label} draggable onDragStart={(e) => onDragStart(e, node.type as NodeType)} className="p-4 rounded-2xl glass-button cursor-grab flex items-center gap-4 group hover:scale-[1.02] active:scale-95 transition-all">
-                    <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-slate-400 group-hover:text-sky-400 transition-all">
+                  <div 
+                    key={node.label} 
+                    draggable 
+                    onDragStart={(e) => onDragStart(e, node.type as NodeType)} 
+                    className={`rounded-2xl glass-button cursor-grab flex items-center group relative hover:scale-[1.02] active:scale-95 transition-all ${isExpanded ? 'p-4 gap-4' : 'p-3 justify-center aspect-square'}`}
+                  >
+                    <div className={`rounded-xl bg-black/40 border border-white/5 text-slate-400 group-hover:text-sky-400 transition-all ${isExpanded ? 'p-2.5' : 'p-2.5'}`}>
                       <node.icon className="w-5 h-5" />
                     </div>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-slate-200">{node.label}</span>
-                      <span className="text-[9px] text-slate-500 truncate max-w-[140px]">{node.description}</span>
-                    </div>
+                    
+                    {isExpanded && (
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="text-xs font-bold text-slate-200 truncate">{node.label}</span>
+                        <span className="text-[9px] text-slate-500 truncate max-w-[140px]">{node.description}</span>
+                      </div>
+                    )}
+
+                    {!isExpanded && (
+                       <div className="absolute left-full ml-6 px-4 py-2 bg-slate-900 border border-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-all translate-x-[-10px] group-hover:translate-x-0 shadow-2xl z-[100]">
+                          {node.label}
+                       </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -136,8 +203,9 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
+      {/* Right Settings Panel */}
       {selectedNode && (
-        <div className="fixed right-6 w-[480px] glass-card border border-white/10 rounded-[40px] flex flex-col z-50 shadow-[0_48px_128px_rgba(0,0,0,0.8)] backdrop-blur-[64px]" style={{ top: '120px', height: 'calc(100vh - 144px)' }}>
+        <div className="fixed right-6 w-[480px] glass-card border border-white/10 rounded-[40px] flex flex-col z-50 shadow-[0_48px_128px_rgba(0,0,0,0.8)] backdrop-blur-[64px] animate-in slide-in-from-right duration-500" style={{ top: '120px', height: 'calc(100vh - 144px)' }}>
           <div className="p-10 border-b border-white/5">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-5">

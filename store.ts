@@ -69,6 +69,7 @@ interface WorkflowStore {
   isLocked: boolean;
   stepResolver: (() => void) | null;
   settings: any;
+  memoryStore: Record<string, any[]>; // SessionID -> ChatHistory[]
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
@@ -107,9 +108,31 @@ interface WorkflowStore {
   deleteCredential: (id: string) => void;
 }
 
-// --------------------------------------------------------------------------------
-// 30 Blueprints using EXACT Node Library Specifications
-// --------------------------------------------------------------------------------
+const getLabelForType = (type: NodeType): string => {
+  switch (type) {
+    case NodeType.WEBHOOK: return 'Webhook';
+    case NodeType.CRON: return 'Cron Schedule';
+    case NodeType.AI_AGENT: return 'AI Agent';
+    case NodeType.GEMINI: return 'Google Gemini';
+    case NodeType.LLM_CHAIN: return 'Basic LLM Chain';
+    case NodeType.SUMMARIZATION_CHAIN: return 'Summarization Chain';
+    case NodeType.QA_CHAIN: return 'Question and Answer Chain';
+    case NodeType.SSH: return 'SSH Execution';
+    case NodeType.HTTP_REQUEST: return 'HTTP Request';
+    case NodeType.FILTER: return 'Filter';
+    case NodeType.CODE: return 'JS Code';
+    case NodeType.JSON_PARSER: return 'JSON Parser';
+    case NodeType.SET: return 'Set Data';
+    case NodeType.WAIT: return 'Wait/Delay';
+    case NodeType.SWITCH: return 'Switch';
+    case NodeType.VECTOR_STORE: return 'Vector Store';
+    case NodeType.WINDOW_BUFFER_MEMORY: return 'Window Buffer Memory';
+    case NodeType.POSTGRES_CHAT_MEMORY: return 'Postgres Chat Memory';
+    case NodeType.REDIS_CHAT_MEMORY: return 'Redis Chat Memory';
+    default: return type.charAt(0).toUpperCase() + type.slice(1);
+  }
+};
+
 const INITIAL_BLUEPRINTS: LibraryItem[] = Array.from({ length: 30 }).map((_, i) => {
   const titles = [
     'Document Triage AI', 'GitHub Issue Labeler', 'Multi-Cloud Auditor', 'Sentiment Analysis', 'Slack-DB Sync',
@@ -119,20 +142,20 @@ const INITIAL_BLUEPRINTS: LibraryItem[] = Array.from({ length: 30 }).map((_, i) 
     'Abandoned Cart Bot', 'CloudWatch Bridge', 'Onboarding Flow', 'KPI Aggregator', 'PII Data Redactor',
     'Service Mesh Monitor', 'Email A/B Splitter', 'Low Stock Alert', 'Brand Tracking AI', 'OCR Data Extraction'
   ];
-  const cats = ['AI Ops', 'DevOps', 'Data Ops', 'Security', 'Infrastructure'];
+  const cats = ['LangChain Framework', 'Infrastructure', 'Data Ops', 'Security', 'AI Ops'];
   const colors = ['amber', 'emerald', 'indigo', 'sky', 'rose'];
   const category = cats[i % cats.length];
 
-  // Map to correct labels/types from Sidebar.tsx
   const nodeConfig = (index: number) => {
     switch (index) {
-      case 0: return { type: NodeType.WEBHOOK, label: 'Webhook', params: { method: 'POST', path: `api-${i}` } };
+      case 0: return { type: NodeType.WEBHOOK, params: { method: 'POST', path: `api-${i}` } };
       case 1: 
-        if (category === 'AI Ops') return { type: NodeType.GEMINI, label: 'Google Gemini', params: { prompt: 'Analyze this data...', model: 'gemini-2.5-flash' } };
-        if (category === 'DevOps') return { type: NodeType.SSH, label: 'SSH Execution', params: { command: 'uptime', host: 'cluster-01' } };
-        return { type: NodeType.CODE, label: 'JS Code', params: { jsCode: 'return $json;' } };
-      case 2: return { type: NodeType.SET, label: 'Set Data', params: { json: '{"status": "completed"}' } };
-      default: return { type: NodeType.SET, label: 'Set Data', params: { json: '{}' } };
+        if (category === 'LangChain Framework') return { type: NodeType.LLM_CHAIN, params: { prompt: 'Analyze: {{ $json.input }}' } };
+        if (category === 'AI Ops') return { type: NodeType.AI_AGENT, params: { prompt: 'You are an agent...', model: 'gemini-2.5-flash' } };
+        if (category === 'Infrastructure') return { type: NodeType.SSH, params: { command: 'uptime', host: 'server-01' } };
+        return { type: NodeType.CODE, params: { jsCode: 'return $json;' } };
+      case 2: return { type: NodeType.SET, params: { json: '{"status": "completed"}' } };
+      default: return { type: NodeType.SET, params: { json: '{}' } };
     }
   };
 
@@ -143,7 +166,9 @@ const INITIAL_BLUEPRINTS: LibraryItem[] = Array.from({ length: 30 }).map((_, i) 
       type: 'custom',
       position: { x: idx * 350, y: 100 },
       data: { 
-        ...cfg, 
+        type: cfg.type,
+        label: getLabelForType(cfg.type),
+        params: cfg.params, 
         outputs: cfg.type === NodeType.FILTER ? ['true', 'false'] : ['default'] 
       }
     };
@@ -157,7 +182,7 @@ const INITIAL_BLUEPRINTS: LibraryItem[] = Array.from({ length: 30 }).map((_, i) 
   return {
     id: `tpl_${i + 1}`,
     name: titles[i],
-    description: `Enterprise-ready ${category} orchestration flow using standard nodes.`,
+    description: `Enterprise-ready ${category} orchestration flow.`,
     category,
     complexity: i % 3 === 0 ? 'High' : i % 3 === 1 ? 'Medium' : 'Low',
     color: colors[i % colors.length],
@@ -166,9 +191,6 @@ const INITIAL_BLUEPRINTS: LibraryItem[] = Array.from({ length: 30 }).map((_, i) 
   };
 });
 
-// --------------------------------------------------------------------------------
-// 10 Initial Workflows using EXACT Node Library Specifications
-// --------------------------------------------------------------------------------
 const INITIAL_WORKFLOWS: Workflow[] = [
   {
     id: 'wf_traffic_gate',
@@ -184,49 +206,7 @@ const INITIAL_WORKFLOWS: Workflow[] = [
       { id: 'eg1', source: 'w1', target: 'c1', animated: true },
       { id: 'eg2', source: 'c1', target: 'h1', animated: true }
     ]
-  },
-  {
-    id: 'wf_sec_scan',
-    name: 'SSH Vulnerability Scan',
-    description: 'Nightly fleet security audit.',
-    active: true, updatedAt: new Date().toISOString(), triggerType: 'schedule', schedule: 'daily', environment: 'production', priority: 'high',
-    nodes: [
-      { id: 'cr1', type: 'custom', position: { x: 0, y: 0 }, data: { label: 'Cron Schedule', type: NodeType.CRON, params: { interval: '0 0 * * *' }, outputs: ['default'] } },
-      { id: 'ss1', type: 'custom', position: { x: 350, y: 0 }, data: { label: 'SSH Execution', type: NodeType.SSH, params: { host: 'prod-01', command: 'check_vulns.sh' }, outputs: ['default'] } },
-      { id: 'ht1', type: 'custom', position: { x: 700, y: 0 }, data: { label: 'HTTP Request', type: NodeType.HTTP_REQUEST, params: { url: 'https://security.webhook', method: 'POST' }, outputs: ['default'] } }
-    ],
-    edges: [
-      { id: 'es1', source: 'cr1', target: 'ss1', animated: true },
-      { id: 'es2', source: 'ss1', target: 'ht1', animated: true }
-    ]
-  },
-  {
-    id: 'wf_ai_categorizer',
-    name: 'AI Support Desk',
-    description: 'Autonomous triage using Gemini.',
-    active: true, updatedAt: new Date().toISOString(), triggerType: 'webhook', environment: 'production', priority: 'standard',
-    nodes: [
-      { id: 'wh1', type: 'custom', position: { x: 0, y: 0 }, data: { label: 'Webhook', type: NodeType.WEBHOOK, params: { path: 'support', method: 'POST' }, outputs: ['default'] } },
-      { id: 'gm1', type: 'custom', position: { x: 350, y: 0 }, data: { label: 'Google Gemini', type: NodeType.GEMINI, params: { prompt: 'Classify this ticket: {{ $json.body }}', model: 'gemini-2.5-flash' }, outputs: ['default'] } },
-      { id: 'ft1', type: 'custom', position: { x: 700, y: 0 }, data: { label: 'Filter', type: NodeType.FILTER, params: { property: '{{ $json.category }}', value: 'critical' }, outputs: ['true', 'false'] } }
-    ],
-    edges: [
-      { id: 'ea1', source: 'wh1', target: 'gm1', animated: true },
-      { id: 'ea2', source: 'gm1', target: 'ft1', animated: true }
-    ]
-  },
-  // Add 7 more initial deployments to reach 10
-  ...Array.from({ length: 7 }).map((_, i) => ({
-    id: `wf_auto_${i}`,
-    name: `System Automation ${i + 4}`,
-    description: 'Enterprise workflow monitoring system.',
-    active: true, updatedAt: new Date().toISOString(), triggerType: 'schedule' as const, schedule: 'hourly', environment: 'staging' as const, priority: 'standard' as const,
-    nodes: [
-      { id: 'n1', type: 'custom', position: { x: 0, y: 0 }, data: { label: 'Cron Schedule', type: NodeType.CRON, params: { interval: '0 * * * *' }, outputs: ['default'] } },
-      { id: 'n2', type: 'custom', position: { x: 350, y: 0 }, data: { label: 'JS Code', type: NodeType.CODE, params: { jsCode: 'return { heartbeat: true };' }, outputs: ['default'] } }
-    ],
-    edges: [{ id: `e_auto_${i}`, source: 'n1', target: 'n2', animated: true }]
-  }))
+  }
 ];
 
 export const useWorkflowStore = create<WorkflowStore>()(
@@ -245,6 +225,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
       selectedNodeId: null,
       isLocked: false,
       stepResolver: null,
+      memoryStore: {},
       settings: { isolatedExecution: true, autoSave: true, defaultView: 'json' },
 
       addCredential: (cred) => set(s => ({ credentials: [...s.credentials, { ...cred, id: `cred_${Math.random()}`, updatedAt: 'Just now', status: 'valid' } as ICredential] })),
@@ -317,17 +298,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
       addNode: (type, position) => {
         const { currentWorkflow } = get();
         if (!currentWorkflow) return;
-        let label = type.charAt(0).toUpperCase() + type.slice(1);
-        // Correct labels from Sidebar.tsx
-        if (type === NodeType.GEMINI) label = 'Google Gemini';
-        if (type === NodeType.SSH) label = 'SSH Execution';
-        if (type === NodeType.CODE) label = 'JS Code';
-        if (type === NodeType.HTTP_REQUEST) label = 'HTTP Request';
-        if (type === NodeType.SET) label = 'Set Data';
-        if (type === NodeType.CRON) label = 'Cron Schedule';
-        if (type === NodeType.JSON_PARSER) label = 'JSON Parser';
-        if (type === NodeType.SUMMARIZATION_CHAIN) label = 'Summarizer';
-
+        const label = getLabelForType(type);
         let outputs = ['default'];
         if (type === NodeType.FILTER) outputs = ['true', 'false'];
         if (type === NodeType.SWITCH) outputs = ['Case 1', 'Case 2', 'Default'];
@@ -359,6 +330,8 @@ export const useWorkflowStore = create<WorkflowStore>()(
         try {
           const firstItem = inputItems[0] || { json: {} };
           const ctx = { $json: firstItem.json, $execution: { id: executionId, timestamp: new Date().toISOString() } };
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          
           switch (node.data.type) {
             case NodeType.SET:
               const val = resolveExpression(node.data.params.json, ctx);
@@ -371,10 +344,57 @@ export const useWorkflowStore = create<WorkflowStore>()(
               outputItems = [{ json: codeResult || {} }];
               break;
             case NodeType.GEMINI:
-              const prompt = resolveExpression(node.data.params.prompt, ctx);
-              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-              const result = await ai.models.generateContent({ model: node.data.params.model || 'gemini-2.5-flash', contents: { parts: [{ text: prompt }] } });
-              outputItems = [{ json: { text: result.text, jobId: executionId } }];
+            case NodeType.LLM_CHAIN:
+            case NodeType.AI_AGENT:
+              const prompt = resolveExpression(node.data.params.prompt || node.data.params.query, ctx);
+              const sessionId = resolveExpression(node.data.params.sessionId || 'default', ctx);
+              const history = get().memoryStore[sessionId] || [];
+              
+              const fullPrompt = history.length > 0 
+                ? `Conversation History:\n${history.map(m => `${m.role}: ${m.text}`).join('\n')}\n\nUser: ${prompt}`
+                : prompt;
+
+              const result = await ai.models.generateContent({ 
+                model: node.data.params.model || 'gemini-2.5-flash', 
+                contents: { parts: [{ text: fullPrompt }] } 
+              });
+              
+              outputItems = [{ json: { text: result.text, historyCount: history.length, sessionId } }];
+              break;
+            case NodeType.SUMMARIZATION_CHAIN:
+              const strategy = node.data.params.type || 'map_reduce';
+              const textToSummarize = resolveExpression(node.data.params.text || '{{ $json.text }}', ctx);
+              const sumPrompt = `Perform a high-quality summarization of the following text using the "${strategy}" strategy. Ensure the summary is concise yet informative.\n\nTEXT:\n${textToSummarize}`;
+              
+              const sumResult = await ai.models.generateContent({ 
+                model: 'gemini-2.5-flash', 
+                contents: { parts: [{ text: sumPrompt }] } 
+              });
+              outputItems = [{ json: { summary: sumResult.text, strategy, inputLength: textToSummarize.length } }];
+              break;
+            case NodeType.QA_CHAIN:
+              const qaQuery = resolveExpression(node.data.params.query || '{{ $json.query }}', ctx);
+              const qaContext = resolveExpression(node.data.params.context || '{{ $json.text }}', ctx);
+              const qaPrompt = `Answer the user query based ONLY on the provided context. If the answer is not in the context, say you don't know.\n\nCONTEXT:\n${qaContext}\n\nQUERY: ${qaQuery}`;
+              
+              const qaResult = await ai.models.generateContent({ 
+                model: 'gemini-2.5-flash', 
+                contents: { parts: [{ text: qaPrompt }] } 
+              });
+              outputItems = [{ json: { answer: qaResult.text, query: qaQuery } }];
+              break;
+            case NodeType.WINDOW_BUFFER_MEMORY:
+            case NodeType.POSTGRES_CHAT_MEMORY:
+            case NodeType.REDIS_CHAT_MEMORY:
+              const sId = resolveExpression(node.data.params.sessionId || 'default', ctx);
+              const k = node.data.params.windowSize || 10;
+              const currentMsg = ctx.$json.text || ctx.$json.message || '';
+              
+              const existingHist = get().memoryStore[sId] || [];
+              const newHist = [...existingHist, { role: 'human', text: currentMsg }].slice(-k);
+              
+              set(s => ({ memoryStore: { ...s.memoryStore, [sId]: newHist } }));
+              outputItems = [{ json: { sessionId: sId, bufferCount: newHist.length, state: 'persisted' } }];
               break;
             case NodeType.HTTP_REQUEST:
               const url = resolveExpression(node.data.params.url, ctx);
@@ -385,6 +405,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               await new Promise(r => setTimeout(r, 300));
               outputItems = inputItems;
           }
+          
           get().updateNodeData(nodeId, { status: 'success', lastResult: [outputItems] });
           const nextEdges = get().currentWorkflow?.edges.filter(e => e.source === nodeId);
           if (nextEdges?.length) { await Promise.all(nextEdges.map(e => get().executeInternal(e.target, outputItems, executionId))); }
@@ -409,7 +430,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const startedAt = new Date().toLocaleString();
         const startNodes = wf.nodes.filter(n => !wf.edges.some(e => e.target === n.id));
         const startTime = Date.now();
-        await Promise.all(startNodes.map(n => get().executeInternal(n.id, [{ json: { value: 100, message: "System Initialized" } }], executionId)));
+        await Promise.all(startNodes.map(n => get().executeInternal(n.id, [{ json: { text: "Starting signal", value: 100 } }], executionId)));
         const duration = `${Date.now() - startTime}ms`;
         const newExecution: IExecution = { id: executionId, workflowId: wf.id, workflowName: wf.name, status: 'success', startedAt, duration };
         set(s => ({ isExecuting: false, activeJobId: null, executions: [newExecution, ...s.executions].slice(0, 50) }));
@@ -418,7 +439,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
       runNodeInstance: async (id) => { 
         const executionId = `DEBUG-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
         set({ isExecuting: true, activeJobId: executionId }); 
-        await get().executeInternal(id, [{ json: { value: 100, message: "Isolated test" } }], executionId); 
+        await get().executeInternal(id, [{ json: { text: "Manual trigger signal", value: 100 } }], executionId); 
         set({ isExecuting: false, activeJobId: null }); 
       },
       updateNodeData: (id, data) => set(s => ({ currentWorkflow: { ...s.currentWorkflow!, nodes: s.currentWorkflow!.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n) } }))

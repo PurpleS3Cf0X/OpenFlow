@@ -43,6 +43,9 @@ export enum NodeType {
   
   // LangChain Sub-Nodes
   MEMORY = 'memory',
+  WINDOW_BUFFER_MEMORY = 'windowBufferMemory',
+  POSTGRES_CHAT_MEMORY = 'postgresChatMemory',
+  REDIS_CHAT_MEMORY = 'redisChatMemory',
   VECTOR_STORE = 'vectorStore',
   TOOL = 'tool',
   OUTPUT_PARSER = 'outputParser',
