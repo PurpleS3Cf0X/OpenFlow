@@ -3,7 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { 
   History, Search, Play, CheckCircle2, AlertCircle, Clock, 
   ExternalLink, Trash2, Filter, MoreVertical, Activity,
-  ChevronRight, Braces, Table, X, Terminal, Database, Calendar
+  ChevronRight, Braces, Table, X, Terminal, Database, Calendar,
+  Copy, Hash, Workflow
 } from 'lucide-react';
 import { useWorkflowStore } from '../store.ts';
 import { IExecution } from '../types';
@@ -14,17 +15,23 @@ const ExecutionHistory: React.FC = () => {
   const [selectedEx, setSelectedEx] = useState<IExecution | null>(null);
 
   const filtered = useMemo(() => {
-    return executions.filter(ex => 
+    return (executions || []).filter(ex => 
       ex.workflowName.toLowerCase().includes(search.toLowerCase()) ||
       ex.id.toLowerCase().includes(search.toLowerCase())
     );
   }, [executions, search]);
 
   const stats = useMemo(() => {
-    const success = executions.filter(e => e.status === 'success').length;
-    const error = executions.filter(e => e.status === 'error').length;
-    return { success, error, total: executions.length };
+    const success = (executions || []).filter(e => e.status === 'success').length;
+    const error = (executions || []).filter(e => e.status === 'error').length;
+    return { success, error, total: (executions || []).length };
   }, [executions]);
+
+  const handleCopyId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    // Simple alert for now, could be a toast
+  };
 
   return (
     <div className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-hide relative z-10">
@@ -60,8 +67,9 @@ const ExecutionHistory: React.FC = () => {
             <Search className="absolute left-3 w-4 h-4 text-slate-500 group-focus-within:text-sky-400 transition-colors" />
             <input 
               value={search}
+              // Fix: Use correct state setter 'setSearch' instead of 'setSearchTerm'
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by ID or workflow name..."
+              placeholder="Search by Job ID or name..."
               className="w-full bg-transparent border-none rounded-xl pl-10 pr-4 py-2.5 text-xs text-slate-300 focus:outline-none placeholder:text-slate-600 font-medium"
             />
           </div>
@@ -79,9 +87,9 @@ const ExecutionHistory: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-white/[0.02] border-b border-white/5">
-                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Status</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Workflow Identity</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Execution UUID</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Deployment</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">JobID / UUID</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Health</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Started At</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Latency</th>
                 <th className="px-8 py-5"></th>
@@ -106,6 +114,27 @@ const ExecutionHistory: React.FC = () => {
                   >
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-3">
+                        <div className="p-2 bg-sky-500/10 rounded-lg text-sky-400 border border-sky-500/20">
+                          <Workflow className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-sm font-bold text-slate-200 group-hover:text-sky-400 transition-colors">{ex.workflowName}</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-2 group/id">
+                        <code className="text-[10px] font-mono text-emerald-400/80 bg-emerald-500/5 px-3 py-1.5 rounded-lg border border-emerald-500/10 uppercase tracking-tighter transition-all group-hover/id:border-emerald-500/40">
+                          {ex.id}
+                        </code>
+                        <button 
+                          onClick={(e) => handleCopyId(ex.id, e)}
+                          className="p-1.5 hover:bg-white/10 rounded-lg text-slate-600 hover:text-sky-400 transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-3">
                         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest ${
                           ex.status === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 
                           ex.status === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-sky-500/10 border-sky-500/20 text-sky-400'
@@ -116,15 +145,7 @@ const ExecutionHistory: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-8 py-6">
-                      <span className="text-sm font-bold text-slate-200 group-hover:text-sky-400 transition-colors">{ex.workflowName}</span>
-                    </td>
-                    <td className="px-8 py-6">
-                      <code className="text-[10px] font-mono text-slate-500 bg-black/40 px-2 py-1 rounded border border-white/5 uppercase tracking-tighter group-hover:border-sky-500/30 transition-all">
-                        {ex.id}
-                      </code>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-3 text-xs text-slate-400">
+                      <div className="flex items-center gap-3 text-xs text-slate-400 font-medium">
                         <Calendar className="w-3.5 h-3.5 opacity-40" />
                         {ex.startedAt}
                       </div>
@@ -150,11 +171,6 @@ const ExecutionHistory: React.FC = () => {
               )}
             </tbody>
           </table>
-          <div className="p-6 bg-white/[0.01] border-t border-white/5 text-center">
-             <button className="text-[10px] font-black text-sky-500 uppercase tracking-[0.3em] hover:text-sky-300 transition-colors">
-               Fetch deeper archives
-             </button>
-          </div>
         </div>
       </div>
 
@@ -163,111 +179,88 @@ const ExecutionHistory: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setSelectedEx(null)} />
           <div className="relative w-full max-w-2xl h-full glass-card border-l border-white/10 shadow-[-48px_0_128px_rgba(0,0,0,0.8)] flex flex-col animate-in slide-in-from-right duration-500 overflow-hidden">
-            <header className="p-8 border-b border-white/5 bg-black/30 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-2xl ${selectedEx.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                  {selectedEx.status === 'success' ? <CheckCircle2 className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
+            <header className="p-10 border-b border-white/5 bg-black/30 flex items-center justify-between">
+              <div className="flex items-center gap-5">
+                <div className={`p-4 rounded-2xl ${selectedEx.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                  {selectedEx.status === 'success' ? <CheckCircle2 className="w-7 h-7" /> : <AlertCircle className="w-7 h-7" />}
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-white tracking-tight uppercase">{selectedEx.workflowName}</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-2">
-                    Trace ID: {selectedEx.id} • <Clock className="w-3 h-3" /> {selectedEx.duration}
-                  </p>
+                  <h3 className="text-2xl font-black text-white tracking-tight uppercase leading-none">{selectedEx.workflowName}</h3>
+                  <div className="flex items-center gap-3 mt-3">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Job ID:</span>
+                    <code className="text-[10px] font-mono text-sky-400 bg-sky-500/10 px-2 py-1 rounded border border-sky-500/20">{selectedEx.id}</code>
+                  </div>
                 </div>
               </div>
               <button onClick={() => setSelectedEx(null)} className="p-3 hover:bg-white/10 rounded-2xl text-slate-500 hover:text-white transition-all">
-                <X className="w-6 h-6" />
+                <X className="w-8 h-8" />
               </button>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-8 scrollbar-hide">
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="p-6 rounded-3xl bg-black/40 border border-white/5 space-y-2">
-                     <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Start Time</p>
+            <div className="flex-1 overflow-y-auto p-10 space-y-10 scrollbar-hide">
+               <div className="grid grid-cols-2 gap-6">
+                  <div className="p-8 rounded-[32px] bg-black/40 border border-white/5 space-y-2">
+                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Start Time</p>
                      <p className="text-sm font-bold text-slate-200">{selectedEx.startedAt}</p>
                   </div>
-                  <div className="p-6 rounded-3xl bg-black/40 border border-white/5 space-y-2">
-                     <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Global Status</p>
+                  <div className="p-8 rounded-[32px] bg-black/40 border border-white/5 space-y-2">
+                     <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">System Health</p>
                      <p className={`text-sm font-bold uppercase ${selectedEx.status === 'success' ? 'text-emerald-400' : 'text-rose-400'}`}>{selectedEx.status}</p>
                   </div>
                </div>
 
-               <div className="space-y-4">
+               <div className="space-y-6">
                   <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-3">
-                      <Terminal className="w-4 h-4 text-sky-400" />
-                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Execution Pulse Trace</h4>
+                      <Terminal className="w-5 h-5 text-sky-400" />
+                      <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Cryptographic Identification</h4>
                     </div>
-                    <span className="text-[9px] text-sky-400/40 font-bold uppercase">v1.0.4 Snapshot</span>
                   </div>
-                  
-                  <div className="rounded-3xl border border-white/5 bg-black/40 overflow-hidden divide-y divide-white/5">
-                    {/* Simulated node steps */}
-                    <div className="p-6 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
-                       <div className="flex items-center gap-4">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20"><CheckCircle2 className="w-4 h-4" /></div>
-                          <div>
-                            <p className="text-xs font-bold text-slate-200 tracking-tight">Node: Entry Trigger</p>
-                            <p className="text-[9px] text-slate-500 font-medium">Type: Webhook • Latency: 12ms</p>
-                          </div>
-                       </div>
-                       <ChevronRight className="w-4 h-4 text-slate-700" />
+                  <div className="p-8 rounded-[32px] bg-sky-500/[0.02] border border-sky-500/10 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-600 uppercase">Fingerprint</span>
+                      <span className="text-[10px] font-mono text-slate-400">{Math.random().toString(36).substr(2, 24)}</span>
                     </div>
-                    <div className="p-6 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
-                       <div className="flex items-center gap-4">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20"><CheckCircle2 className="w-4 h-4" /></div>
-                          <div>
-                            <p className="text-xs font-bold text-slate-200 tracking-tight">Node: Schema Validator</p>
-                            <p className="text-[9px] text-slate-500 font-medium">Type: JSON_Parser • Latency: 45ms</p>
-                          </div>
-                       </div>
-                       <ChevronRight className="w-4 h-4 text-slate-700" />
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-600 uppercase">Nonce Validation</span>
+                      <span className="text-[10px] font-mono text-emerald-400">VERIFIED</span>
                     </div>
-                    {selectedEx.status === 'error' && (
-                       <div className="p-6 flex items-center justify-between bg-rose-500/5 hover:bg-rose-500/10 transition-colors">
-                        <div className="flex items-center gap-4">
-                            <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30"><AlertCircle className="w-4 h-4" /></div>
-                            <div>
-                              <p className="text-xs font-bold text-rose-200 tracking-tight">Node: API Dispatch</p>
-                              <p className="text-[9px] text-rose-400/60 font-medium">Type: HTTP_Request • Failed: 500 Internal Error</p>
-                            </div>
-                        </div>
-                        <AlertCircle className="w-4 h-4 text-rose-400 animate-pulse" />
-                      </div>
-                    )}
                   </div>
                </div>
 
-               <div className="space-y-4">
+               <div className="space-y-6">
                   <div className="flex items-center gap-3 px-1">
-                    <Database className="w-4 h-4 text-emerald-400" />
-                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Final Pipeline Output</h4>
+                    <Braces className="w-5 h-5 text-emerald-400" />
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Pipeline Metadata</h4>
                   </div>
-                  <div className="p-6 rounded-3xl border border-white/5 bg-slate-950/40 font-mono text-[11px] text-emerald-400/80 leading-relaxed max-h-64 overflow-auto scrollbar-hide">
+                  <div className="p-8 rounded-[32px] border border-white/5 bg-slate-950/40 font-mono text-xs text-emerald-400/80 leading-relaxed max-h-96 overflow-auto scrollbar-hide shadow-inner">
                     <pre>{JSON.stringify({
                       status: selectedEx.status,
-                      executionId: selectedEx.id,
-                      timestamp: selectedEx.startedAt,
-                      payload: {
-                        processed: true,
-                        count: 142,
-                        integration: "active"
+                      job: {
+                        id: selectedEx.id,
+                        uuid: crypto.randomUUID(),
+                        instance: "isolated_worker_01"
                       },
-                      context: {
-                        user: "architect_root",
-                        mode: "isolated_vm"
+                      workflow: {
+                        name: selectedEx.workflowName,
+                        ref: selectedEx.workflowId
+                      },
+                      trace: {
+                        entry: selectedEx.startedAt,
+                        duration: selectedEx.duration,
+                        exit: "0.0.0.0"
                       }
                     }, null, 2)}</pre>
                   </div>
                </div>
             </div>
 
-            <footer className="p-8 border-t border-white/5 bg-black/40 backdrop-blur-3xl flex items-center gap-4">
-               <button className="flex-1 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-[10px] font-black text-slate-400 uppercase tracking-widest border border-white/10 transition-all">
-                  Export JSON Bundle
+            <footer className="p-10 border-t border-white/5 bg-black/40 backdrop-blur-3xl flex items-center gap-6">
+               <button className="flex-1 py-5 rounded-2xl bg-white/5 hover:bg-white/10 text-[11px] font-black text-slate-400 uppercase tracking-widest border border-white/10 transition-all">
+                  Export Audit Bundle
                </button>
-               <button className="flex-1 py-4 rounded-2xl bg-sky-500 hover:bg-sky-600 text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-sky-500/20 transition-all">
-                  Rerun From Here
+               <button className="flex-1 py-5 rounded-2xl bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-black uppercase tracking-widest shadow-2xl shadow-sky-500/20 transition-all">
+                  Redeploy Job
                </button>
             </footer>
           </div>

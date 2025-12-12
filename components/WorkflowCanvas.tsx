@@ -6,7 +6,7 @@ import { useWorkflowStore } from '../store.ts';
 import CustomNode from './CustomNode.tsx';
 import Sidebar from './Sidebar.tsx';
 import { 
-  Play, ChevronLeft, Maximize, Activity, Plus, Minus, Lock, Unlock, Bug, StepForward, SkipForward, XCircle, Zap
+  Play, ChevronLeft, Maximize, Activity, Plus, Minus, Lock, Unlock, Bug, StepForward, SkipForward, XCircle, Zap, Fingerprint
 } from 'lucide-react';
 import { NodeType } from '../types.ts';
 
@@ -20,7 +20,7 @@ const WorkflowCanvasInternal: React.FC = () => {
     currentWorkflow, loadWorkflow, onNodesChange, onEdgesChange, onConnect, onNodesDelete,
     isExecuting, setSelectedNodeId, selectedNodeId, runWorkflow, runNodeInstance, isLocked, toggleLock,
     isDebugMode, toggleDebugMode, isPaused, step, resume, abortExecution,
-    addNode
+    addNode, activeJobId
   } = useWorkflowStore();
   
   const { fitView, zoomIn, zoomOut, project } = useReactFlow();
@@ -70,9 +70,17 @@ const WorkflowCanvasInternal: React.FC = () => {
         <header className="absolute top-6 left-8 right-8 h-20 glass-card border border-white/10 rounded-[28px] flex items-center justify-between px-8 z-[60] shadow-2xl">
           <div className="flex items-center gap-6">
             <Link to="/workflows" className="p-3 hover:bg-white/5 rounded-xl text-slate-500"><ChevronLeft className="w-6 h-6" /></Link>
-            <div>
-              <h1 className="text-lg font-black text-white uppercase tracking-tight leading-none">{currentWorkflow.name}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1.5">Operational Canvas</p>
+            <div className="flex items-center gap-6">
+              <div>
+                <h1 className="text-lg font-black text-white uppercase tracking-tight leading-none">{currentWorkflow.name}</h1>
+                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mt-1.5">Operational Canvas</p>
+              </div>
+              {activeJobId && (
+                <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/5 border border-emerald-500/20 rounded-xl animate-in fade-in slide-in-from-left-4">
+                  <Fingerprint className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[9px] font-mono text-emerald-400/80 uppercase tracking-widest">Active Job: {activeJobId}</span>
+                </div>
+              )}
             </div>
           </div>
           

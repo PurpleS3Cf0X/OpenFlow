@@ -1,9 +1,10 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Workflow, Zap, Trash2, Search, Copy, Power,
   ChevronDown, Activity, CheckCircle2, FileText, Sparkles, Terminal, Database,
-  ArrowRight, BookOpen, Layers, Cpu, ShieldCheck, Eye, Bot, X
+  ArrowRight, BookOpen, Layers, Cpu, ShieldCheck, Eye, Bot, X, Clock, Calendar, 
+  Settings2, ToggleRight, ToggleLeft, Fingerprint, Code, Layout, Shield, Server, Briefcase
 } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useWorkflowStore } from '../store.ts';
@@ -41,8 +42,23 @@ const Automations: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
   
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  
+  // Enhanced Form State
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
+  const [environment, setEnvironment] = useState<'development' | 'staging' | 'production'>('development');
+  const [priority, setPriority] = useState<'standard' | 'high' | 'critical'>('standard');
+  const [triggerType, setTriggerType] = useState<'manual' | 'schedule'>('manual');
+  const [schedule, setSchedule] = useState('hourly');
+  const [customCron, setCustomCron] = useState('*/5 * * * *');
+  
+  // Advanced Dynamic ID Preview Logic
+  const projectedJobPattern = useMemo(() => {
+    const envCode = environment.slice(0, 4).toUpperCase();
+    const priCode = priority.slice(0, 4).toUpperCase();
+    const wfCode = (formName || "ID").slice(0, 4).toUpperCase().replace(/[^A-Z]/g, 'X');
+    return `${envCode}-${priCode}-${wfCode}-XXXX-XXXX`;
+  }, [formName, environment, priority]);
 
   const filteredWorkflows = useMemo(() => {
     return (workflows || []).filter(wf => {
@@ -65,12 +81,41 @@ const Automations: React.FC = () => {
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) return;
-    const id = createWorkflow(formName, formDescription);
+    
+    const scheduleValue = triggerType === 'schedule' 
+      ? (schedule === 'custom' ? customCron : schedule) 
+      : undefined;
+
+    const id = createWorkflow({
+      name: formName,
+      description: formDescription,
+      triggerType,
+      schedule: scheduleValue,
+      environment,
+      priority
+    });
+    
+    // Reset Form
+    setFormName("");
+    setFormDescription("");
+    setEnvironment('development');
+    setPriority('standard');
     setIsCreateModalOpen(false);
     navigate(`/editor/${id}`);
   };
 
-  const categories = ["All Categories", ...Array.from(new Set(libraryItems.map(i => i.category)))];
+  const FREQUENCIES = [
+    { id: 'hourly', label: 'Hourly', icon: Clock },
+    { id: 'daily', label: 'Daily', icon: Calendar },
+    { id: 'weekly', label: 'Weekly', icon: BookOpen },
+    { id: 'custom', label: 'Custom Cron', icon: Settings2 },
+  ];
+
+  const ENVIRONMENTS = [
+    { id: 'development', label: 'DEV', color: 'emerald', icon: Code },
+    { id: 'staging', label: 'STG', color: 'indigo', icon: Server },
+    { id: 'production', label: 'PRD', color: 'rose', icon: Shield },
+  ];
 
   return (
     <div className="flex-1 overflow-y-auto p-6 scrollbar-hide relative z-10 h-full">
@@ -95,18 +140,8 @@ const Automations: React.FC = () => {
         </header>
 
         <div className="flex p-1 bg-black/40 rounded-xl border border-white/10 w-fit">
-          <button 
-            onClick={() => setActiveTab('deployments')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'deployments' ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Deployments
-          </button>
-          <button 
-            onClick={() => setActiveTab('library')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'library' ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Library
-          </button>
+          <button onClick={() => setActiveTab('deployments')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'deployments' ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>Deployments</button>
+          <button onClick={() => setActiveTab('library')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'library' ? 'bg-sky-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>Library</button>
         </div>
 
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -137,28 +172,13 @@ const Automations: React.FC = () => {
               className="w-full bg-transparent border-none rounded-lg pl-10 pr-4 py-1.5 text-[11px] text-slate-300 focus:outline-none placeholder:text-slate-600 font-medium"
             />
           </div>
-          
           <div className="flex items-center gap-4">
-            {activeTab === 'deployments' ? (
+            {activeTab === 'deployments' && (
               <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/5">
                 {(["all", "active", "paused"] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setStatusFilter(s)}
-                    className={`px-3 py-1.5 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${statusFilter === s ? 'bg-sky-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                  >
-                    {s}
-                  </button>
+                  <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1.5 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${statusFilter === s ? 'bg-sky-500 text-white' : 'text-slate-500 hover:text-slate-300'}`}>{s}</button>
                 ))}
               </div>
-            ) : (
-              <select 
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400 focus:outline-none appearance-none hover:text-white transition-all cursor-pointer"
-              >
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
             )}
           </div>
         </div>
@@ -168,7 +188,7 @@ const Automations: React.FC = () => {
             <thead>
               <tr className="bg-white/[0.02] border-b border-white/5">
                 <th className="px-6 py-3 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Name</th>
-                <th className="px-6 py-3 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Context</th>
+                <th className="px-6 py-3 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Env / Context</th>
                 <th className="px-6 py-3 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Stats</th>
                 <th className="px-6 py-3 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Updated</th>
                 <th className="px-6 py-3 text-right"></th>
@@ -184,23 +204,31 @@ const Automations: React.FC = () => {
                           <Workflow className="w-4 h-4" />
                         </div>
                         <div>
-                          <p className="text-xs font-black text-white group-hover:text-sky-400">{wf.name}</p>
+                          <div className="flex items-center gap-2">
+                             <p className="text-xs font-black text-white group-hover:text-sky-400">{wf.name}</p>
+                             {wf.triggerType === 'schedule' && (
+                               <div className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[7px] font-black uppercase tracking-widest">Auto</div>
+                             )}
+                          </div>
                           <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">{wf.id.split('_')[1]}</p>
                         </div>
                       </Link>
                     </td>
                     <td className="px-6 py-4">
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest ${wf.active ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' : 'text-slate-500 border-white/5'}`}>
-                        <div className={`w-1 h-1 rounded-full ${wf.active ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-                        {wf.active ? 'Running' : 'Paused'}
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase tracking-widest border ${wf.environment === 'production' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : wf.environment === 'staging' ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}>
+                          {wf.environment}
+                        </span>
+                        <div className={`inline-flex items-center gap-1.5 text-[8px] font-black uppercase tracking-widest ${wf.active ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          <div className={`w-1 h-1 rounded-full ${wf.active ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+                          {wf.active ? 'Running' : 'Paused'}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-[9px] font-mono text-slate-400 bg-black/40 px-2 py-1 rounded-md">{(wf.nodes || []).length}N</span>
                     </td>
-                    <td className="px-6 py-4 text-[10px] text-slate-500 font-medium">
-                      {new Date(wf.updatedAt).toLocaleDateString()}
-                    </td>
+                    <td className="px-6 py-4 text-[10px] text-slate-500 font-medium">{new Date(wf.updatedAt).toLocaleDateString()}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button onClick={() => toggleWorkflowActive(wf.id)} className={`p-2 rounded-lg border transition-all ${wf.active ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}><Power className="w-3.5 h-3.5" /></button>
@@ -215,40 +243,19 @@ const Automations: React.FC = () => {
                   <tr key={tpl.id} className="group hover:bg-white/[0.03] transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl border bg-${tpl.color}-500/10 border-${tpl.color}-500/20 text-${tpl.color}-400`}>
-                          <CategoryIcon category={tpl.category} />
-                        </div>
+                        <div className={`p-2.5 rounded-xl border bg-${tpl.color}-500/10 border-${tpl.color}-500/20 text-${tpl.color}-400`}><CategoryIcon category={tpl.category} /></div>
                         <div>
                           <p className="text-xs font-black text-white group-hover:text-sky-400">{tpl.name}</p>
                           <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">{tpl.description}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="text-[8px] font-black uppercase text-slate-400">{tpl.category}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className={`text-[8px] font-black uppercase tracking-widest ${tpl.complexity === 'High' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                        {tpl.complexity}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-[9px] font-mono text-slate-500">v1.2.0</span>
-                    </td>
+                    <td className="px-6 py-4"><span className="text-[8px] font-black uppercase text-slate-400">{tpl.category}</span></td>
+                    <td className="px-6 py-4"><div className={`text-[8px] font-black uppercase tracking-widest ${tpl.complexity === 'High' ? 'text-rose-400' : 'text-emerald-400'}`}>{tpl.complexity}</div></td>
+                    <td className="px-6 py-4"><span className="text-[9px] font-mono text-slate-500">v1.2.0</span></td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => { const id = applyTemplate(tpl); navigate(`/editor/${id}`); }}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-500 text-white font-black text-[9px] uppercase tracking-widest hover:scale-105 transition-all"
-                        >
-                          Use Blueprint
-                        </button>
-                        <button 
-                          onClick={() => { if(confirm("Remove from library?")) deleteLibraryItem(tpl.id); }}
-                          className="p-2 bg-black/40 border border-white/10 rounded-lg text-slate-500 hover:text-rose-400 transition-all"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <button onClick={() => { const id = applyTemplate(tpl); navigate(`/editor/${id}`); }} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-500 text-white font-black text-[9px] uppercase tracking-widest hover:scale-105 transition-all">Use Blueprint</button>
                       </div>
                     </td>
                   </tr>
@@ -261,24 +268,125 @@ const Automations: React.FC = () => {
 
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="relative w-full max-w-md glass-card border border-white/10 rounded-3xl shadow-2xl overflow-hidden p-8 animate-in zoom-in-95">
-            <header className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-black text-white">New Workflow</h2>
-              <button onClick={() => setIsCreateModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg"><X className="w-5 h-5" /></button>
+          <div className="relative w-full max-w-4xl glass-card border border-white/10 rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[95vh]">
+            <header className="p-10 border-b border-white/5 flex items-center justify-between bg-black/20">
+              <div className="flex items-center gap-6">
+                <div className="p-5 bg-sky-500/15 rounded-3xl border border-sky-500/30 shadow-lg shadow-sky-500/20">
+                  <Fingerprint className="w-8 h-8 text-sky-400" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white tracking-tight uppercase leading-none">Initialize Architecture</h2>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em] mt-3">Governance Framework • Unified Orchestration</p>
+                </div>
+              </div>
+              <button onClick={() => setIsCreateModalOpen(false)} className="p-3 hover:bg-white/10 rounded-2xl text-slate-500 transition-all"><X className="w-8 h-8" /></button>
             </header>
-            <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Name</label>
-                <input required value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-sky-500/50" />
+            
+            <form onSubmit={handleCreateSubmit} className="flex-1 overflow-y-auto p-10 grid grid-cols-1 lg:grid-cols-12 gap-10 scrollbar-hide bg-black/10">
+              {/* Identity Section */}
+              <div className="lg:col-span-7 space-y-10">
+                 <div className="space-y-4">
+                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
+                      <Briefcase className="w-3.5 h-3.5 text-sky-400" /> Global Identity
+                    </label>
+                    <input required autoFocus value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vision-Triage-Node" className="w-full bg-black/40 border border-white/5 rounded-[28px] px-8 py-6 text-sm text-white focus:outline-none focus:ring-1 focus:ring-sky-500/50 shadow-inner placeholder:text-slate-700 font-bold" />
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest px-1 flex items-center gap-2">
+                      <Layout className="w-3.5 h-3.5 text-sky-400" /> Operational Scope
+                    </label>
+                    <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="Define technical objectives and expected data transformations..." className="w-full bg-black/40 border border-white/5 rounded-[28px] px-8 py-6 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500/50 resize-none shadow-inner h-48 placeholder:text-slate-700" />
+                  </div>
+
+                  <div className="space-y-6">
+                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest px-1">Deployment Tier</label>
+                    <div className="grid grid-cols-3 gap-3">
+                       {ENVIRONMENTS.map(env => (
+                         <button
+                           key={env.id}
+                           type="button"
+                           onClick={() => setEnvironment(env.id as any)}
+                           className={`p-5 rounded-3xl border flex flex-col items-center gap-3 transition-all ${environment === env.id ? `bg-${env.color}-500/15 border-${env.color}-500/30 text-${env.color}-400 shadow-xl shadow-${env.color}-500/10` : 'bg-black/40 border-white/5 text-slate-600 hover:text-slate-400'}`}
+                         >
+                           <env.icon className="w-5 h-5" />
+                           <span className="text-[9px] font-black uppercase tracking-widest">{env.label}</span>
+                         </button>
+                       ))}
+                    </div>
+                  </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Description</label>
-                <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-2.5 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-sky-500/50 resize-none" rows={3} />
+
+              {/* Configuration Sidebar */}
+              <div className="lg:col-span-5 space-y-8">
+                 <div className="p-8 rounded-[40px] border border-white/5 bg-white/[0.02] space-y-8 h-full flex flex-col">
+                    <div className="space-y-6">
+                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest px-1">Orchestration Priority</label>
+                       <div className="grid grid-cols-1 gap-2">
+                          {(['standard', 'high', 'critical'] as const).map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setPriority(p)}
+                              className={`flex items-center justify-between p-4 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${priority === p ? 'bg-sky-500 border-sky-400 text-white' : 'bg-black/40 border-white/5 text-slate-500 hover:bg-white/5'}`}
+                            >
+                               {p}
+                               {priority === p && <CheckCircle2 className="w-4 h-4" />}
+                            </button>
+                          ))}
+                       </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between">
+                         <div className="flex items-center gap-3">
+                           <div className={`p-2.5 rounded-xl transition-all ${triggerType === 'schedule' ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
+                             <Clock className="w-5 h-5" />
+                           </div>
+                           <span className="text-[11px] font-black text-slate-200 uppercase tracking-widest">Automation</span>
+                         </div>
+                         <button type="button" onClick={() => setTriggerType(triggerType === 'manual' ? 'schedule' : 'manual')} className={`p-1 transition-all ${triggerType === 'schedule' ? 'text-sky-400' : 'text-slate-700'}`}>
+                           {triggerType === 'schedule' ? <ToggleRight className="w-10 h-10" /> : <ToggleLeft className="w-10 h-10" />}
+                         </button>
+                      </div>
+
+                      {triggerType === 'schedule' && (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                           {FREQUENCIES.map(freq => (
+                             <button key={freq.id} type="button" onClick={() => setSchedule(freq.id)} className={`flex items-center gap-4 p-4 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all w-full ${schedule === freq.id ? 'bg-sky-500 border-sky-400 text-white' : 'bg-black/40 border-white/5 text-slate-500 hover:text-slate-300'}`}>
+                               <freq.icon className="w-4 h-4" /> {freq.label}
+                             </button>
+                           ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-auto pt-8 border-t border-white/5 space-y-4">
+                      <div className="flex items-center gap-3 px-1">
+                        <ShieldCheck className="w-4 h-4 text-emerald-500/60" />
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Job Validation Trace</span>
+                      </div>
+                      <div className="p-6 bg-black/40 rounded-3xl border border-white/5 space-y-4">
+                         <div className="space-y-1.5">
+                           <p className="text-[8px] font-black text-slate-600 uppercase">Projected JobID Identification</p>
+                           <p className="text-[11px] font-mono text-emerald-400 tracking-tighter truncate">{projectedJobPattern}</p>
+                         </div>
+                         <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                            <p className="text-[9px] font-black text-slate-400 uppercase">Validated for {environment}</p>
+                         </div>
+                      </div>
+                    </div>
+                 </div>
               </div>
-              <button type="submit" className="w-full py-3.5 rounded-xl bg-sky-500 text-white font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-[1.02] active:scale-95 transition-all">
-                Initialize Architecture
-              </button>
             </form>
+
+            <footer className="p-10 border-t border-white/5 bg-black/40 backdrop-blur-3xl flex justify-end gap-6">
+               <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-12 py-5 rounded-2xl text-[11px] font-black text-slate-500 uppercase tracking-widest hover:bg-white/5 transition-all">Cancel</button>
+               <button type="submit" onClick={handleCreateSubmit} className="px-20 py-5 rounded-2xl bg-sky-500 text-white font-black text-[11px] uppercase tracking-[0.4em] shadow-2xl shadow-sky-500/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center gap-4">
+                 Provision Flow <ArrowRight className="w-5 h-5" />
+               </button>
+            </footer>
           </div>
         </div>
       )}
