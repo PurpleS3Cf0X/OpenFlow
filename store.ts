@@ -126,6 +126,9 @@ const getLabelForType = (type: NodeType): string => {
     case NodeType.WAIT: return 'Wait/Delay';
     case NodeType.SWITCH: return 'Switch';
     case NodeType.VECTOR_STORE: return 'Vector Store';
+    case NodeType.LIMIT: return 'Limit';
+    case NodeType.SORT: return 'Sort';
+    case NodeType.SPLIT_BATCHES: return 'Split In Batches';
     case NodeType.WINDOW_BUFFER_MEMORY: return 'Window Buffer Memory';
     case NodeType.POSTGRES_CHAT_MEMORY: return 'Postgres Chat Memory';
     case NodeType.REDIS_CHAT_MEMORY: return 'Redis Chat Memory';
@@ -333,6 +336,24 @@ export const useWorkflowStore = create<WorkflowStore>()(
           const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           
           switch (node.data.type) {
+            case NodeType.LIMIT:
+              const limit = parseInt(node.data.params.limit || '10');
+              outputItems = inputItems.slice(0, limit);
+              break;
+            case NodeType.SORT:
+              const sortKey = node.data.params.key || 'id';
+              const direction = node.data.params.direction || 'asc';
+              outputItems = [...inputItems].sort((a, b) => {
+                const valA = a.json[sortKey];
+                const valB = b.json[sortKey];
+                if (direction === 'asc') return valA > valB ? 1 : -1;
+                return valA < valB ? 1 : -1;
+              });
+              break;
+            case NodeType.SPLIT_BATCHES:
+              const batchSize = parseInt(node.data.params.batchSize || '10');
+              outputItems = inputItems.slice(0, batchSize);
+              break;
             case NodeType.SET:
               const val = resolveExpression(node.data.params.json, ctx);
               outputItems = [{ json: typeof val === 'string' ? JSON.parse(val) : val }];
@@ -341,7 +362,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               const code = node.data.params.jsCode || 'return $json;';
               const executeCode = new Function('$json', '$execution', `try { ${code} } catch(e) { throw e; }`);
               const codeResult = executeCode(ctx.$json, ctx.$execution);
-              outputItems = [{ json: codeResult || {} }];
+              outputItems = Array.isArray(codeResult) ? codeResult.map(j => ({ json: j })) : [{ json: codeResult || {} }];
               break;
             case NodeType.GEMINI:
             case NodeType.LLM_CHAIN:

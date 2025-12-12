@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
   Search, Globe, Filter, Box, X, Sparkles, Brain, Bot, 
@@ -6,12 +5,65 @@ import {
   Zap, Layers, MessageSquare, FileSearch, FileText, 
   Cpu, Archive, HardDrive, Wrench, Binary, Server, 
   Webhook as WebhookIcon, Clock, Pause, Merge, Split, ArrowRightLeft, FileJson,
-  Pin, PinOff, ChevronRight, ChevronLeft, BrainCircuit, History
+  Pin, PinOff, ChevronRight, ChevronLeft, BrainCircuit, History, Braces, Type, Hash, ChevronDown
 } from 'lucide-react';
 import { useWorkflowStore } from '../store.ts';
 import { NodeType } from '../types.ts';
 import ExpressionEditor from './ExpressionEditor.tsx';
 import ParameterField from './ParameterField.tsx';
+
+// --- Recursive Data Explorer Component ---
+// Added React.FC type to handle reserved 'key' prop and avoid excess property checking errors during recursive rendering
+const DataNode: React.FC<{ label: string; value: any; depth?: number }> = ({ label, value, depth = 0 }) => {
+  const [isOpen, setIsOpen] = useState(depth < 2);
+  const isObject = value !== null && typeof value === 'object';
+  const isArray = Array.isArray(value);
+
+  const getIcon = () => {
+    if (isObject) return <Braces className="w-3 h-3 text-sky-400" />;
+    if (typeof value === 'number') return <Hash className="w-3 h-3 text-amber-400" />;
+    if (typeof value === 'boolean') return <Zap className="w-3 h-3 text-emerald-400" />;
+    return <Type className="w-3 h-3 text-slate-400" />;
+  };
+
+  return (
+    <div className="select-none">
+      <div 
+        className={`flex items-center gap-2 py-1.5 px-3 rounded-lg transition-all duration-200 hover:bg-white/5 cursor-pointer group ${depth > 0 ? 'ml-4' : ''}`}
+        onClick={() => isObject && setIsOpen(!isOpen)}
+      >
+        <div className="w-4 h-4 flex items-center justify-center">
+          {isObject ? (
+            isOpen ? <ChevronDown className="w-3.5 h-3.5 text-slate-500" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+          ) : (
+            <div className="w-1.5 h-1.5 rounded-full bg-sky-500/20 border border-sky-500/40" />
+          )}
+        </div>
+        {getIcon()}
+        <span className="text-[11px] font-bold text-slate-300 group-hover:text-sky-400">
+          {label}
+        </span>
+        {!isObject && (
+          <span className="text-[10px] text-slate-500 font-mono truncate ml-auto">
+            {String(value)}
+          </span>
+        )}
+        {isArray && (
+          <span className="text-[8px] font-black text-sky-400/60 bg-sky-400/10 px-1.5 rounded uppercase tracking-widest ml-2">
+            Array[{value.length}]
+          </span>
+        )}
+      </div>
+      {isObject && isOpen && (
+        <div className="border-l border-white/5 ml-3.5">
+          {Object.entries(value).map(([k, v]) => (
+            <DataNode key={k} label={k} value={v} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const NODE_TEMPLATES = [
   { category: 'Triggers', nodes: [
@@ -63,12 +115,13 @@ const NODE_TEMPLATES = [
     { type: NodeType.CODE, label: 'JS Code', icon: CodeIcon, description: 'Isolated JS Sandbox', schema: [{ name: 'jsCode', label: 'Function', type: 'string', default: 'return $json;' }] },
     { type: NodeType.JSON_PARSER, label: 'JSON Parser', icon: FileJson, description: 'Parse string to JSON object', schema: [
       { name: 'jsonString', label: 'JSON String', type: 'string', default: '{{ $json.body }}' },
-      { name: 'jsonSchema', label: 'JSON Schema (Optional)', type: 'json', default: '{}', description: 'Validate the parsed object against this schema' }
     ]},
     { type: NodeType.SET, label: 'Set Data', icon: Database, description: 'Update flow variables', schema: [
       { name: 'json', label: 'Data Object', type: 'json', default: '{}' },
-      { name: 'jsonSchema', label: 'JSON Schema (Optional)', type: 'json', default: '{}', description: 'Enforce structure on the output data' }
     ]},
+    { type: NodeType.LIMIT, label: 'Limit', icon: List, description: 'Control item count', schema: [{ name: 'limit', label: 'Count', type: 'number', default: 10 }] },
+    { type: NodeType.SORT, icon: ArrowRightLeft, label: 'Sort', description: 'Reorder items', schema: [{ name: 'key', label: 'Key', type: 'string' }, { name: 'direction', label: 'Direction', type: 'options', options: [{label: 'ASC', value: 'asc'}, {label: 'DESC', value: 'desc'}]}] },
+    { type: NodeType.SPLIT_BATCHES, icon: Split, label: 'Split In Batches', description: 'Chunk large datasets', schema: [{ name: 'batchSize', label: 'Batch Size', type: 'number', default: 10 }] },
     { type: NodeType.WAIT, label: 'Wait/Delay', icon: Pause, description: 'Pause execution', schema: [{ name: 'seconds', label: 'Seconds', type: 'number', default: 5 }] },
     { type: NodeType.SWITCH, label: 'Switch', icon: Zap, description: 'Multi-path routing', schema: [{ name: 'property', label: 'Switch Key', type: 'string' }] },
   ]},
@@ -102,7 +155,6 @@ const Sidebar: React.FC = () => {
   const [isExpressionOpen, setIsExpressionOpen] = useState(false);
   const [activeParam, setActiveParam] = useState<string | null>(null);
 
-  // Collapsible Sidebar States
   const [isPinned, setIsPinned] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const isExpanded = isPinned || isHovered;
@@ -131,7 +183,6 @@ const Sidebar: React.FC = () => {
         onMouseLeave={() => setIsHovered(false)}
         className={`flex flex-col h-full glass-card border-r border-white/5 z-[70] flex-shrink-0 transition-all duration-500 ease-out relative shadow-2xl overflow-hidden ${isExpanded ? 'w-[320px]' : 'w-[72px]'}`}
       >
-        {/* Toggle Pin Button */}
         <button 
           onClick={(e) => { e.stopPropagation(); setIsPinned(!isPinned); }}
           className={`absolute top-8 right-6 p-2 rounded-xl transition-all z-[80] ${isExpanded ? 'opacity-100 scale-100' : 'opacity-0 scale-50 pointer-events-none'} hover:bg-white/10 text-slate-500 hover:text-sky-400`}
@@ -145,7 +196,6 @@ const Sidebar: React.FC = () => {
           </div>
         )}
 
-        {/* Header/Search Section */}
         <div className={`p-8 space-y-6 transition-all duration-300 ${isExpanded ? 'opacity-100' : 'opacity-0 translate-x-[-20px]'}`}>
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] whitespace-nowrap">Node Library</h2>
           <div className="relative group">
@@ -159,7 +209,6 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Nodes Grid */}
         <div className={`flex-1 overflow-y-auto px-4 pb-8 space-y-8 scrollbar-hide transition-all duration-300 ${isExpanded ? 'px-6' : 'px-2'}`}>
           {filteredTemplates.map(cat => (
             <div key={cat.category} className="space-y-4">
@@ -182,14 +231,12 @@ const Sidebar: React.FC = () => {
                     <div className={`rounded-xl bg-black/40 border border-white/5 text-slate-400 group-hover:text-sky-400 transition-all ${isExpanded ? 'p-2.5' : 'p-2.5'}`}>
                       <node.icon className="w-5 h-5" />
                     </div>
-                    
                     {isExpanded && (
                       <div className="flex flex-col overflow-hidden">
                         <span className="text-xs font-bold text-slate-200 truncate">{node.label}</span>
                         <span className="text-[9px] text-slate-500 truncate max-w-[140px]">{node.description}</span>
                       </div>
                     )}
-
                     {!isExpanded && (
                        <div className="absolute left-full ml-6 px-4 py-2 bg-slate-900 border border-white/10 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-all translate-x-[-10px] group-hover:translate-x-0 shadow-2xl z-[100]">
                           {node.label}
@@ -203,7 +250,6 @@ const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Settings Panel */}
       {selectedNode && (
         <div className="fixed right-6 w-[480px] glass-card border border-white/10 rounded-[40px] flex flex-col z-50 shadow-[0_48px_128px_rgba(0,0,0,0.8)] backdrop-blur-[64px] animate-in slide-in-from-right duration-500" style={{ top: '120px', height: 'calc(100vh - 144px)' }}>
           <div className="p-10 border-b border-white/5">
@@ -238,9 +284,13 @@ const Sidebar: React.FC = () => {
                    <Binary className="w-4 h-4 text-emerald-400" />
                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Node Output Snapshot</span>
                 </div>
-                <pre className="text-emerald-400 text-[11px] font-mono whitespace-pre-wrap bg-black/40 p-6 rounded-3xl border border-white/5 shadow-inner">
-                  {JSON.stringify(selectedNode.data.lastResult?.[0]?.[0] || { status: 'Awaiting execution...' }, null, 2)}
-                </pre>
+                <div className="p-2 rounded-3xl bg-black/40 border border-white/5 shadow-inner">
+                  {selectedNode.data.lastResult ? (
+                    <DataNode label="Items" value={selectedNode.data.lastResult[0]} />
+                  ) : (
+                    <div className="p-8 text-center text-[10px] text-slate-600 uppercase font-bold tracking-widest opacity-40">Awaiting execution...</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
