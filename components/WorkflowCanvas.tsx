@@ -61,6 +61,21 @@ const WorkflowCanvasInternal: React.FC = () => {
     [project, addNode]
   );
 
+  const getMiniMapNodeColor = (node: any) => {
+    if (node.data?.status === 'error') return '#f43f5e';
+    if (node.data?.status === 'executing') return '#38bdf8';
+    
+    const type = node.data?.type;
+    const aiTypes = [NodeType.AI_AGENT, NodeType.GEMINI, NodeType.LLM_CHAIN, NodeType.QA_CHAIN, NodeType.SUMMARIZATION_CHAIN];
+    const triggerTypes = [NodeType.WEBHOOK, NodeType.CRON];
+    const logicTypes = [NodeType.CODE, NodeType.FILTER, NodeType.SWITCH, NodeType.JSON_PARSER, NodeType.SET];
+
+    if (aiTypes.includes(type)) return '#818cf8'; // Indigo
+    if (triggerTypes.includes(type)) return '#34d399'; // Emerald
+    if (logicTypes.includes(type)) return '#0ea5e9'; // Sky
+    return '#475569'; // Slate
+  };
+
   if (!currentWorkflow) return <div className="flex-1 h-full flex items-center justify-center"><Activity className="w-12 h-12 text-sky-500/20 animate-pulse" /></div>;
 
   return (
@@ -147,7 +162,15 @@ const WorkflowCanvasInternal: React.FC = () => {
             deleteKeyCode={["Backspace", "Delete"]}
           >
             <Background variant="dots" gap={32} size={1} color="#334155" className="opacity-20" />
-            <MiniMap className="!bg-slate-900/80 !border-white/10 !rounded-3xl !shadow-2xl !bottom-28 !right-8" />
+            
+            <MiniMap 
+              className="!bg-slate-900/40 !backdrop-blur-2xl !border-white/10 !rounded-[32px] !shadow-2xl !bottom-32 !right-8 !overflow-hidden" 
+              nodeColor={getMiniMapNodeColor}
+              maskColor="rgba(15, 23, 42, 0.4)"
+              nodeStrokeWidth={3}
+              nodeBorderRadius={8}
+            />
+
             <Panel position="bottom-center" className="mb-10">
               <div className="flex items-center gap-4 p-3 glass-card rounded-[24px] border border-white/10 shadow-2xl bg-black/60">
                 <button onClick={() => zoomIn()} className="p-3 text-slate-500 hover:text-sky-400 rounded-xl transition-all"><Plus className="w-5 h-5" /></button>
